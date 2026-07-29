@@ -1,5 +1,6 @@
 package com.businesslogic.groovy.security;
 
+import com.businesslogic.groovy.engine.GroovyExpressionEngine;
 import org.codehaus.groovy.ast.stmt.Statement;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.SecureASTCustomizer;
@@ -72,7 +73,7 @@ public class GroovySandbox {
      * 调用危险方法。黑名单在 AST 级别拦截这些类作为接收者，确保无法执行系统命令、文件 IO、网络访问、反射等。
      *
      * <p>关联：由 {@link SecureASTCustomizer#setReceiversBlackList(List)} 启用；
-     * 与白名单形成"双保险"——白名单管 import，黑名单管直接调用。
+     * 与白名单形成"双保险"——白名单管 import，黑名单管直接调用。a
      */
     private static final List<String> RECEIVERS_BLACKLIST = Collections.unmodifiableList(Arrays.asList(
             "java.lang.System",
