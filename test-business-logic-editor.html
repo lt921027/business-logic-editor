@@ -1,0 +1,2768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>业务逻辑编辑器</title>
+  <!--<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script> -->
+  <script src="./vue.global.js"></script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f7fa;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .app-container {
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      max-width: 1400px;
+      margin: 0 auto;
+      border: 1px solid #e0e0e0;
+    }
+
+    .app-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px 40px;
+      text-align: center;
+    }
+
+    .app-header h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      opacity: 0.9;
+      font-size: 1rem;
+      font-weight: 400;
+    }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 300px 1fr 350px;
+      gap: 20px;
+      padding: 30px;
+      min-height: 600px;
+    }
+
+    .left-panel,
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .center-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-section {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e0e0e0;
+    }
+
+    .panel-section h3 {
+      color: #333;
+      margin-bottom: 16px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      position: relative;
+      padding-bottom: 8px;
+    }
+
+    .panel-section h3::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 40px;
+      height: 3px;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      border-radius: 2px;
+    }
+
+    .json-textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      resize: vertical;
+      margin-bottom: 12px;
+    }
+
+    .json-textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .fields-list {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    .fields-list h4 {
+      color: #666;
+      margin-bottom: 12px;
+      font-size: 0.95rem;
+    }
+
+    .field-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .field-tag {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    .field-tag::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.3);
+      transform: translate(-50%, -50%);
+      transition: width 0.3s ease, height 0.3s ease;
+    }
+
+    .field-tag:hover::before {
+      width: 200px;
+      height: 200px;
+    }
+
+    .field-tag:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(165, 27, 211, 0.5);
+    }
+
+    .field-tag:active {
+      transform: translateY(0);
+    }
+
+    .field-icon {
+      margin-right: 4px;
+    }
+
+    .field-hint {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: #666;
+      background: #fff3cd;
+      padding: 8px 12px;
+      border-radius: 6px;
+      border-left: 4px solid #ffc107;
+    }
+
+    .field-tree-container {
+      background: #f5f7fa;
+      border-radius: 12px;
+      padding: 16px;
+      border: 1px solid #e0e6ed;
+    }
+
+    .field-tree {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 1px solid #e8ecf1;
+    }
+
+    .tree-node {
+      font-size: 0.9rem;
+      font-family: 'Consolas', 'Monaco', monospace;
+    }
+
+    .tree-node-row {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      margin: 4px 0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+      background: #ffffff;
+      position: relative;
+    }
+
+    .tree-node-row:hover {
+      background: #f0f4ff;
+      border-color: #d0d9ff;
+      transform: translateX(2px);
+    }
+
+    .tree-node-row.is-leaf {
+      border-left: 3px solid #52c41a;
+    }
+
+    .tree-node-row.is-leaf:hover {
+      background: #f6ffed;
+      border-color: #52c41a;
+    }
+
+    .tree-node-row.is-object {
+      background: #f9fafb;
+      border-left: 3px solid #1890ff;
+    }
+
+    .tree-node-row.is-object:hover {
+      background: #e6f7ff;
+      border-color: #1890ff;
+    }
+
+    .tree-node-row.is-selected {
+      background: linear-gradient(135deg, #3be05f 0%, #bae7ff 100%);
+      border: 1px solid #91d5ff;
+      border-left: 3px solid #18de82;
+    }
+
+    .tree-node-row.is-selected:hover {
+      background: linear-gradient(135deg, #bae7ff 0%, #69c0ff 100%);
+      border-color: #69c0ff;
+    }
+
+    .tree-node-row.is-selected.tree-key {
+      color: #1890ff;
+    }
+
+    .tree-node-row.is-selected.tree-path {
+      background: #e6f7ff;
+      color: #1890ff;
+    }
+
+    .tree-checkbox {
+      margin-left: 12px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #1890ff;
+      padding: 2px 6px;
+      background: #ffffff;
+      border: 1px solid #1890ff;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .tree-toggle {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 8px;
+      font-size: 12px;
+      color: #8c8c8c;
+      cursor: pointer;
+      border-radius: 4px;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .tree-toggle:hover {
+      background: #f0f0f0;
+      color: #595959;
+    }
+
+    .tree-toggle.is-leaf {
+      visibility: hidden;
+    }
+
+    .tree-node-content {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      gap: 12px;
+    }
+
+    .tree-key {
+      font-weight: 600;
+      color: #262626;
+      font-size: 0.95rem;
+      min-width: 120px;
+    }
+
+    .tree-key.is-leaf {
+      color: #389e0d;
+      font-weight: 700;
+    }
+
+    .tree-path {
+      font-size: 0.8rem;
+      color: #8c8c8c;
+      font-family: 'Consolas', 'Monaco', monospace;
+      background: #f5f5f5;
+      padding: 2px 8px;
+      border-radius: 4px;
+      flex: 1;
+      text-align: right;
+      margin-left: auto;
+    }
+
+    .tree-type {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-left: 8px;
+      flex-shrink: 0;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .tree-type.string { 
+      background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%); 
+      color: #0050b3;
+      border: 1px solid #91d5ff;
+    }
+    
+    .tree-type.number { 
+      background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%); 
+      color: #237804;
+      border: 1px solid #b7eb8f;
+    }
+    
+    .tree-type.boolean { 
+      background: linear-gradient(135deg, #fff1f0 0%, #ffccc7 100%); 
+      color: #a8071a;
+      border: 1px solid #ffa39e;
+    }
+    
+    .tree-type.array { 
+      background: linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%); 
+      color: #ad6800;
+      border: 1px solid #ffd591;
+    }
+    
+    .tree-type.object { 
+      background: linear-gradient(135deg, #f3f5f7 0%, #d9d9d9 100%); 
+      color: #595959;
+      border: 1px solid #bfbfbf;
+    }
+
+    .tree-children {
+      margin-left: 28px;
+      border-left: 2px solid #e8e8e8;
+      padding-left: 8px;
+    }
+
+    .tree-node-icon {
+      margin-right: 6px;
+      font-size: 14px;
+    }
+
+    .functions-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .function-item {
+      background: white;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 2px solid transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .function-item::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+      transition: left 0.5s ease;
+    }
+
+    .function-item:hover::after {
+      left: 100%;
+    }
+
+    .function-item:hover {
+      border-color: #667eea;
+      transform: translateX(4px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    }
+
+    .function-item:active {
+      transform: translateX(2px) scale(0.98);
+    }
+
+    .func-name {
+      font-weight: 600;
+      color: #667eea;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .func-desc {
+      font-size: 0.85rem;
+      color: #666;
+    }
+
+    .editor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .editor-header h3 {
+      color: #333;
+      font-size: 1.2rem;
+    }
+
+    .editor-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      transition: background-color 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+      color: white;
+    }
+
+    .btn-success:hover {
+      opacity: 0.9;
+    }
+
+    .btn-info {
+      background: linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%);
+      color: white;
+    }
+
+    .btn-info:hover {
+      opacity: 0.9;
+    }
+
+    .btn-warning {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      color: white;
+    }
+
+    .btn-warning:hover {
+      opacity: 0.9;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      opacity: 0.9;
+    }
+
+    .btn-full {
+      width: 100%;
+    }
+
+    .logic-steps {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+
+    .step-card {
+      background: #ffffff;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .step-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .step-card:hover {
+      border-color: #667eea;
+    }
+
+    .step-card.active {
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .step-header {
+      background: #f8f9fa;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .step-number {
+      font-weight: 600;
+      color: #667eea;
+      user-select: none;
+    }
+
+    .step-number:hover {
+      color: #5568d3;
+    }
+
+    .step-controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-icon {
+      width: 32px;
+      height: 32px;
+      border: none;
+      border-radius: 6px;
+      background: #ffffff;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-icon:hover {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-icon-danger:hover {
+      background: #eb3349;
+      color: white;
+    }
+
+    .step-content {
+      padding: 20px;
+    }
+
+    .input-group {
+      margin-bottom: 16px;
+    }
+
+    .input-group label {
+      display: block;
+      margin-bottom: 6px;
+      color: #555;
+      font-size: 0.9rem;
+      font-weight: 500;
+    }
+
+    .text-input,
+    .select-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      transition: border-color 0.2s;
+      background: #ffffff;
+    }
+
+    .text-input:focus,
+    .select-input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .text-input:hover,
+    .select-input:hover {
+      border-color: #a0aec0;
+    }
+
+    .params-area {
+      margin-bottom: 20px;
+    }
+
+    .params-area label {
+      display: block;
+      margin-bottom: 10px;
+      color: rgba(85, 85, 85, 0.9);
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+
+    .params-inputs {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .param-input {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .param-input.full-width {
+      flex: 1;
+      min-width: 100%;
+    }
+
+    .param-label {
+      min-width: 80px;
+      color: rgba(102, 102, 102, 0.9);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: rgba(153, 153, 153, 0.9);
+    }
+
+    .empty-icon {
+      font-size: 4rem;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .empty-hint {
+      font-size: 0.9rem;
+      margin-top: 8px;
+    }
+
+    .config-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .code-preview {
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .code-preview pre {
+      margin: 0;
+    }
+
+    .code-preview code {
+      color: #d4d4d4;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+
+    .filter-condition-editor {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 16px;
+      border: 1px solid #e0e0e0;
+    }
+
+    .filter-scope-selector {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: #ffffff;
+      border-radius: 8px;
+      border: 2px solid #e0e0e0;
+    }
+
+    .filter-scope-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #555;
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .filter-scope-hint {
+      font-size: 0.75rem;
+      color: #999;
+      margin-top: 6px;
+      font-style: italic;
+    }
+
+    .scope-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .scope-badge.array {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .scope-badge.object {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    .filter-row {
+      margin-bottom: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+    }
+
+    .filter-row .param-input {
+      flex: 1;
+      min-width: 150px;
+    }
+
+    .filter-actions {
+      margin-bottom: 16px;
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 0.8rem;
+    }
+
+    .empty-filter {
+      text-align: center;
+      padding: 20px;
+      color: #999;
+      background: #f8f9fa;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .filter-condition-block {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .filter-condition-block::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .filter-condition-block:hover {
+      border-color: #667eea;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+      transform: translateX(2px);
+    }
+
+    .filter-condition-block:hover::before {
+      opacity: 1;
+    }
+
+    .filter-condition-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .logic-operator {
+      flex: 1;
+      max-width: 100px;
+    }
+
+    .logic-operator .select-input {
+      width: 100%;
+    }
+
+    .nested-group {
+      background: #fafbfc;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      border-left: 4px solid #667eea;
+    }
+
+    .nested-group.level-1 {
+      background: #f3f4f6;
+    }
+
+    .nested-group.level-2 {
+      background: #e5e7eb;
+    }
+
+    .nested-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .nested-group-title {
+      font-weight: 600;
+      color: #667eea;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    @media (max-width: 1200px) {
+      .main-content {
+        grid-template-columns: 1fr;
+      }
+      
+      .left-panel,
+      .right-panel {
+        order: -1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="app-container">
+      <header class="app-header">
+        <h1>业务逻辑编辑器</h1>
+        <p class="subtitle">可视化创建和管理业务逻辑</p>
+      </header>
+
+      <div class="main-content">
+        <div class="left-panel">
+          <div class="panel-section">
+            <h3>📥 接口入参配置</h3>
+            <div class="json-input-area">
+              <label>输入接口入参JSON：</label>
+              <textarea 
+                v-model="jsonInput" 
+                placeholder='{"name": "张三", "age": 25, "email": "zhangsan@example.com", "order": {"id": 1001, "amount": 999.99}}'
+                class="json-textarea"
+              ></textarea>
+              <button @click="parseJson" class="btn btn-primary">解析入参</button>
+            </div>
+            
+            <div v-if="parsedFields.length > 0" class="fields-list">
+              <h4>📋 入参字段树：</h4>
+              <div class="field-tree-container">
+                <div class="field-tree">
+                  <tree-node 
+                    v-for="node in fieldTree" 
+                    :key="node.key"
+                    :node="node" 
+                    :depth="0"
+                  ></tree-node>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <div class="center-panel">
+          <div class="editor-header">
+            <h3>📝 业务逻辑编辑区</h3>
+            <div class="editor-actions">
+              <button @click="saveToBackend" class="btn btn-primary">💾 保存到后端</button>
+              <button @click="executeOnBackend" class="btn btn-warning">⚡ 执行逻辑</button>
+              <button @click="viewExpression" class="btn btn-info">📄 查看表达式</button>
+              <button @click="addStep" class="btn btn-success" :disabled="logicSteps.length >= 5" :style="{ opacity: logicSteps.length >= 5 ? 0.5 : 1, cursor: logicSteps.length >= 5 ? 'not-allowed' : 'pointer' }">➕ 添加步骤</button>
+              <button @click="viewSaveParams" class="btn btn-secondary">📋 查看保存参数</button>
+              <button @click="clearAll" class="btn btn-danger">🗑️ 清空</button>
+            </div>
+            <div v-if="logicSteps.length >= 5" style="margin-top: 10px; padding: 8px 12px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; color: #856404; font-size: 0.85rem;">
+              ⚠️ 步骤数量已达到上限（最多 5 步），无法继续添加！
+            </div>
+          </div>
+
+          <div class="logic-steps">
+            <div v-if="logicSteps.length === 0" class="empty-state">
+              <div class="empty-icon">📝</div>
+              <div>还没有添加业务逻辑步骤</div>
+              <div class="empty-hint">点击右上角的"添加步骤"按钮开始创建</div>
+            </div>
+
+            <div v-for="(step, index) in logicSteps" :key="step.id" 
+                 class="step-card" 
+                 :class="{ active: currentStep === index }"
+                 @click="currentStep = index">
+              <div class="step-header">
+                <span class="step-number">步骤 {{ index + 1 }}</span>
+                <div class="step-controls">
+                  <button v-if="index > 0" @click.stop="moveStep(index, -1)" class="btn-icon" title="上移">⬆️</button>
+                  <button v-if="index < logicSteps.length - 1" @click.stop="moveStep(index, 1)" class="btn-icon" title="下移">⬇️</button>
+                  <button @click.stop="duplicateStep(index)" class="btn-icon" title="复制">📋</button>
+                  <button @click.stop="toggleCollapse(step)" class="btn-icon" title="折叠/展开">
+                    {{ step.collapsed ? '🔽' : '🔼' }}
+                  </button>
+                  <button @click.stop="removeStep(index)" class="btn-icon btn-icon-danger" title="删除">🗑️</button>
+                </div>
+              </div>
+              
+              <div class="step-content" v-show="!step.collapsed">
+                <div class="input-group">
+                  <label>步骤分类：</label>
+                  <select v-model="step.functionCategory[0]" class="select-input" @change="onCategoryChange(step)">
+                    <option value="">-- 选择分类 --</option>
+                    <option v-for="category in functionCategories" :key="category.value" :value="category.value" :style="{ color: category.color }">
+                      {{ category.icon }} {{ category.name }}
+                    </option>
+                  </select>
+                </div>
+
+                <div v-if="step.functionCategory[0] === 'filter'" class="input-group">
+                  <label>筛选范围：</label>
+                  <select v-model="step.filterScope" class="select-input">
+                    <option value="">-- 选择筛选范围 --</option>
+                    <option v-for="field in getArrayOrObjectFields()" :key="field.key" :value="field.key">
+                      {{ field.key }} ({{ field.type }})
+                    </option>
+                  </select>
+                  <div style="font-size: 0.75rem; color: #999; margin-top: 4px; font-style: italic;">
+                    💡 提示：选择入参中的数组或对象字段作为筛选范围
+                  </div>
+                </div>
+
+                <div v-if="step.functionCategory[0] === 'direct'" class="input-group">
+                  <label>映射字段：</label>
+                  <select v-model="step.mappedField" class="select-input">
+                    <option value="">-- 选择映射字段 --</option>
+                    <option v-for="field in getAllFields()" :key="field.key" :value="field.key">
+                      {{ field.key }} ({{ field.type }})
+                    </option>
+                  </select>
+                  <div style="font-size: 0.75rem; color: #999; margin-top: 4px; font-style: italic;">
+                    💡 提示：选择入参中的字段进行直接映射
+                  </div>
+                </div>
+
+                <div v-if="step.functionCategory[0] === 'calculation'" class="input-group">
+                  <label>🧮 计算步骤：</label>
+                  <div class="filter-condition-editor">
+                    <div class="filter-actions">
+                      <button @click="addCalculationStep(step)" class="btn btn-success">
+                        ➕ 添加计算步骤
+                      </button>
+                    </div>
+                    
+                    <div v-if="!step.calculationSteps || step.calculationSteps.length === 0" class="empty-filter">
+                      还没有添加计算步骤，点击上方按钮添加
+                    </div>
+                    
+                    <div v-for="(calcStep, calcIndex) in step.calculationSteps" :key="calcStep.id" class="filter-condition-block">
+                      <div class="filter-condition-header">
+                        <div v-if="calcIndex > 0" class="logic-operator">
+                          <select v-model="calcStep.logicOperator" class="select-input">
+                            <option value="+">+</option>
+                            <option value="-">-</option>
+                            <option value="*">*</option>
+                            <option value="/">/</option>
+                          </select>
+                        </div>
+                        <button @click="removeCalculationStep(step, calcIndex)" class="btn-icon btn-icon-danger" title="删除计算步骤">
+                          ✕
+                        </button>
+                      </div>
+                      
+                      <div class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">函数分类：</span>
+                          <select v-model="calcStep.functionCategory[0]" class="select-input">
+                            <option value="">-- 选择函数分类 --</option>
+                            <option value="string">字符处理</option>
+                            <option value="number">数值处理</option>
+                            <option value="date">日期处理</option>
+                          </select>
+                        </div>
+                        <div class="param-input" v-if="calcStep.functionCategory[0]">
+                          <select v-model="calcStep.filterFunction" @change="onFilterFunctionChange(calcStep)" class="select-input">
+                            <option value="">-- 选择函数 --</option>
+                            <!-- 字符串函数 -->
+                            <template v-if="calcStep.functionCategory[0] === 'string'">
+                              <option value="equals">equals (判断相等)</option>
+                              <option value="length">length (字符串长度)</option>
+                              <option value="concat">concat (字符拼接)</option>
+                              <option value="includes">includes (字符是否包含)</option>
+                            </template>
+                            <!-- 数字函数 -->
+                            <template v-if="calcStep.functionCategory[0] === 'number'">
+                              <option value="arithmetic">四则运算</option>
+                              <option value="sum">sum (求和)</option>
+                              <option value="max">max (取最大值)</option>
+                              <option value="min">min (取最小值)</option>
+                              <option value="avg">avg (平均值)</option>
+                            </template>
+                            <!-- 日期函数 -->
+                            <template v-if="calcStep.functionCategory[0] === 'date'">
+                              <option value="withinLast3Months">withinLast3Months (是否在近三月)</option>
+                              <option value="withinLast6Months">withinLast6Months (是否在近六月)</option>
+                              <option value="withinLast9Months">withinLast9Months (是否在近九月)</option>
+                              <option value="withinLast12Months">withinLast12Months (是否在近十二月)</option>
+                              <option value="days_between">days_between (计算天数差)</option>
+                              <option value="months_between">months_between (计算月数差)</option>
+                              <option value="years_between">years_between (计算年数差)</option>
+                              <option value="isBefore">isBefore (日期是否早于)</option>
+                              <option value="isAfter">isAfter (日期是否晚于)</option>
+                              <option value="isEqual">isEqual (日期是否相等)</option>
+                              <option value="format">format (日期格式化)</option>
+                            </template>
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <div v-if="calcStep.filterFunction">
+                        <div class="filter-actions">
+                          <button @click="addFilterOperand(calcStep)" class="btn btn-success">
+                            ➕ 添加参数
+                          </button>
+                        </div>
+                        
+                        <div v-if="!calcStep.operands || calcStep.operands.length === 0" class="empty-filter">
+                          还没有添加参数，点击上方按钮添加
+                        </div>
+                        
+                        <div v-for="(operand, operandIndex) in calcStep.operands" :key="operand.id" class="filter-row" style="margin-top: 8px;">
+                          <div class="param-input" style="flex: 1;">
+                            <span class="param-label">参数类型：</span>
+                            <select v-model="operand.type" class="select-input">
+                              <option value="field">字段</option>
+                              <option value="value">固定值</option>
+                              <option value="step">步骤</option>
+                              <option value="operator" v-if="calcStep.filterFunction === 'arithmetic'">运算符</option>
+                            </select>
+                          </div>
+                          <div class="param-input" style="flex: 1;" v-if="operand.type === 'field'">
+                            <span class="param-label">选择字段：</span>
+                            <select v-model="operand.typeValue" class="select-input">
+                              <option value="">-- 选择字段 --</option>
+                              <option v-for="field in getAllFields()" :key="field.key" :value="field.key">
+                                {{ field.key }}
+                              </option>
+                            </select>
+                          </div>
+                          <div class="param-input" style="flex: 1;" v-if="operand.type === 'value'">
+                            <span class="param-label">输入值：</span>
+                            <input type="text" v-model="operand.typeValue" class="text-input" placeholder="请输入值" />
+                          </div>
+                          <div class="param-input" style="flex: 1;" v-if="operand.type === 'step'">
+                            <span class="param-label">选择步骤：</span>
+                            <select v-model="operand.typeValue" class="select-input">
+                              <option value="">
+                                {{ logicSteps.length <= 1 ? '无可用步骤' : '-- 选择步骤 --' }}
+                              </option>
+                              <template v-for="(s, idx) in logicSteps" :key="s.id">
+                                <option v-if="idx !== currentStep" :value="idx">
+                                  步骤 {{ idx + 1 }}
+                                </option>
+                              </template>
+                            </select>
+                          </div>
+                          <div class="param-input" style="flex: 1;" v-if="operand.type === 'operator'">
+                            <span class="param-label">选择运算符：</span>
+                            <select v-model="operand.typeValue" class="select-input">
+                              <option value="">-- 选择运算符 --</option>
+                              <option value="+">+</option>
+                              <option value="-">-</option>
+                              <option value="*">*</option>
+                              <option value="/">/</option>
+                            </select>
+                          </div>
+                          <button @click="removeFilterOperand(calcStep, operandIndex)" class="btn-icon btn-icon-danger" title="删除参数" style="margin-left: 8px;">
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="step.functionCategory[0]" class="params-area">
+                  <label v-if="step.functionCategory[0] === 'custom'">自定义函数表达式：</label>
+                  <label v-else-if="step.functionCategory[0] === 'filter'">筛选条件：</label>
+
+                  <template v-if="step.functionCategory[0] === 'custom'">
+                    <input type="text" v-model="step.customExpression" class="text-input" placeholder="例如：field1 + field2 * 100" />
+                  </template>
+                  <template v-else-if="step.functionCategory[0] === 'filter'">
+                    <div class="filter-condition-editor">
+                      <div class="filter-actions">
+                        <button @click="addFilterCondition(step)" class="btn btn-success" style="margin-right: 10px;">
+                          ➕ 添加筛选条件
+                        </button>
+                        <button @click="addNestedGroup(step)" class="btn btn-warning" :disabled="!canAddNestedGroup(step, 0)">
+                          📦 添加嵌套逻辑
+                        </button>
+                      </div>
+                      
+                      <div v-if="!step.filterItems || step.filterItems.length === 0" class="empty-filter">
+                        还没有添加筛选条件，点击上方按钮添加
+                      </div>
+                      
+                      <template v-for="(item, itemIndex) in step.filterItems" :key="item.id">
+                        <div v-if="item.type === 'condition'" class="filter-condition-block">
+                          <div class="filter-condition-header">
+                            <div v-if="itemIndex > 0" class="logic-operator">
+                              <select v-model="item.logicOperator" class="select-input">
+                                <option value="&&">与</option>
+                                <option value="||">或</option>
+                              </select>
+                            </div>
+                            <button @click="removeFilterItem(step, itemIndex)" class="btn-icon btn-icon-danger" title="删除条件">
+                              ✕
+                            </button>
+                          </div>
+                          
+                          <div class="filter-row">
+                            <div class="param-input">
+                              <span class="param-label">函数分类：</span>
+                              <select v-model="item.functionCategory[0]" class="select-input" @change="onFunctionCategoryChange(item)">
+                                <option value="">-- 选择函数分类 --</option>
+                                <option value="string">字符处理</option>
+                                <option value="number">数值处理</option>
+                                <option value="date">日期处理</option>
+                              </select>
+                            </div>
+                            <div class="param-input" v-if="item.functionCategory[0]">
+                              <span class="param-label">具体函数：</span>
+                              <select v-model="item.filterFunction" @change="onFilterFunctionChange(item)" class="select-input">
+                                <option value="">-- 选择函数 --</option>
+                                <!-- 字符串函数 -->
+                                <template v-if="item.functionCategory[0] === 'string'">
+                                  <option value="equals">equals (判断相等)</option>
+                                  <option value="length">length (字符串长度)</option>
+                                  <option value="concat">concat (字符拼接)</option>
+                                  <option value="includes">includes (字符是否包含)</option>
+                                </template>
+                                <!-- 数字函数 -->
+                                <template v-if="item.functionCategory[0] === 'number'">
+                                  <option value="sum">sum (求和)</option>
+                                  <option value="max">max (取最大值)</option>
+                                  <option value="min">min (取最小值)</option>
+                                  <option value="avg">avg (平均值)</option>
+                                </template>
+                                <!-- 日期函数 -->
+                                <template v-if="item.functionCategory[0] === 'date'">
+                                  <option value="withinLast3Months">withinLast3Months (是否在近三月)</option>
+                                  <option value="withinLast6Months">withinLast6Months (是否在近六月)</option>
+                                  <option value="withinLast9Months">withinLast9Months (是否在近九月)</option>
+                                  <option value="withinLast12Months">withinLast12Months (是否在近十二月)</option>
+                                  <option value="days_between">days_between (计算天数差)</option>
+                                  <option value="months_between">months_between (计算月数差)</option>
+                                  <option value="years_between">years_between (计算年数差)</option>
+                                  <option value="isBefore">isBefore (日期是否早于)</option>
+                                  <option value="isAfter">isAfter (日期是否晚于)</option>
+                                  <option value="isEqual">isEqual (日期是否相等)</option>
+                                  <option value="format">format (日期格式化)</option>
+                                </template>
+                              </select>
+                            </div>
+                          </div>
+                          
+                          <div v-if="item.filterFunction">
+                            <div class="filter-actions">
+                              <button @click="addFilterOperand(item)" class="btn btn-success">
+                                ➕ 添加参数
+                              </button>
+                            </div>
+                            
+                            <div v-if="!item.operands || item.operands.length === 0" class="empty-filter">
+                              还没有添加参数，点击上方按钮添加
+                            </div>
+                            
+                            <div v-for="(operand, operandIndex) in item.operands" :key="operand.id" class="filter-operand">
+                              <div class="filter-row">
+                                <div class="param-input">
+                                  <span class="param-label">参数 {{ operandIndex + 1 }} 类型：</span>
+                                  <select v-model="operand.type" class="select-input">
+                                    <option value="field">字段</option>
+                                    <option value="value">手动输入</option>
+                                    <option value="step">步骤</option>
+                                  </select>
+                                </div>
+                                <div class="param-input" v-if="operand.type === 'field'">
+                                  <input
+                                    v-model="operand.typeValue"
+                                    class="text-input"
+                                    placeholder="输入或选择字段"
+                                    :list="'operand-fields-list-' + item.id + '-' + operand.id"
+                                    style="flex: 1;"
+                                  />
+                                  <datalist :id="'operand-fields-list-' + item.id + '-' + operand.id">
+                                    <option v-for="field in parsedFields" :key="field" :value="'input.' + field">
+                                      input.{{ field }}
+                                    </option>
+                                  </datalist>
+                                </div>
+                                <div class="param-input" v-if="operand.type === 'value'">
+                                  <input type="text" v-model="operand.typeValue" class="text-input" placeholder="输入值" />
+                                </div>
+                                <div class="param-input" v-if="operand.type === 'step'">
+                                  <select v-model="operand.typeValue" class="select-input">
+                                    <option value="">
+                                      {{ logicSteps.length <= 1 ? '无可用步骤' : '-- 选择步骤 --' }}
+                                    </option>
+                                    <template v-for="(s, idx) in logicSteps" :key="s.id">
+                                      <option v-if="idx !== currentStep" :value="idx">
+                                        步骤 {{ idx + 1 }}
+                                      </option>
+                                    </template>
+                                  </select>
+                                </div>
+                                <button @click="removeFilterOperand(item, operandIndex)" class="btn-icon btn-icon-danger" title="删除参数">
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div v-if="item.type === 'group'" class="nested-group" :class="'level-' + item.level">
+                          <div class="nested-group-header">
+                            <div class="nested-group-title">
+                              <span>📦 嵌套组 (层 {{ item.level }})</span>
+                              <div v-if="itemIndex > 0" class="logic-operator">
+                                <select v-model="item.logicOperator" class="select-input">
+                                  <option value="&&">与</option>
+                                  <option value="||">或</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                              <button @click="addFilterConditionToGroup(item)" class="btn btn-success btn-sm">
+                                ➕ 添加条件
+                              </button>
+                              <button @click="addNestedGroupToGroup(step, item)" class="btn btn-warning btn-sm" :disabled="!canAddNestedGroup(step, item.level)">
+                                📦 添加嵌套
+                              </button>
+                              <button @click="removeFilterItem(step, itemIndex)" class="btn-icon btn-icon-danger" title="删除嵌套组">
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div v-if="!item.items || item.items.length === 0" class="empty-filter">
+                            嵌套组内还没有条件，点击上方按钮添加
+                          </div>
+                          
+                          <template v-for="(groupItem, groupItemIndex) in item.items" :key="groupItem.id">
+                            <div v-if="groupItem.type === 'condition'" class="filter-condition-block">
+                              <div class="filter-condition-header">
+                                <div v-if="groupItemIndex > 0" class="logic-operator">
+                                  <select v-model="groupItem.logicOperator" class="select-input">
+                                    <option value="&&">与</option>
+                                    <option value="||">或</option>
+                                  </select>
+                                </div>
+                                <button @click="removeFilterItemFromGroup(item, groupItemIndex)" class="btn-icon btn-icon-danger" title="删除条件">
+                                  ✕
+                                </button>
+                              </div>
+                              
+                              <div class="filter-row">
+                                <div class="param-input">
+                                  <span class="param-label">函数分类：</span>
+                                  <select v-model="groupItem.functionCategory[0]" class="select-input" @change="onFunctionCategoryChange(groupItem)">
+                                    <option value="">-- 选择函数分类 --</option>
+                                    <option value="string">字符处理</option>
+                                    <option value="number">数值处理</option>
+                                    <option value="date">日期处理</option>
+                                  </select>
+                                </div>
+                                <div class="param-input" v-if="groupItem.functionCategory[0]">
+                                  <span class="param-label">具体函数：</span>
+                                  <select v-model="groupItem.filterFunction" @change="onFilterFunctionChange(groupItem)" class="select-input">
+                                    <option value="">-- 选择函数 --</option>
+                                    <!-- 字符串函数 -->
+                                    <template v-if="groupItem.functionCategory[0] === 'string'">
+                                      <option value="equals">equals (判断相等)</option>
+                                      <option value="length">length (字符串长度)</option>
+                                      <option value="concat">concat (字符拼接)</option>
+                                      <option value="includes">includes (字符是否包含)</option>
+                                    </template>
+                                    <!-- 数字函数 -->
+                                    <template v-if="groupItem.functionCategory[0] === 'number'">
+                                      <option value="sum">sum (求和)</option>
+                                      <option value="max">max (取最大值)</option>
+                                      <option value="min">min (取最小值)</option>
+                                      <option value="avg">avg (平均值)</option>
+                                    </template>
+                                    <!-- 日期函数 -->
+                                    <template v-if="groupItem.functionCategory[0] === 'date'">
+                                      <option value="withinLast3Months">withinLast3Months (是否在近三月)</option>
+                                      <option value="withinLast6Months">withinLast6Months (是否在近六月)</option>
+                                      <option value="withinLast9Months">withinLast9Months (是否在近九月)</option>
+                                      <option value="withinLast12Months">withinLast12Months (是否在近十二月)</option>
+                                      <option value="days_between">days_between (计算天数差)</option>
+                                      <option value="months_between">months_between (计算月数差)</option>
+                                      <option value="years_between">years_between (计算年数差)</option>
+                                      <option value="isBefore">isBefore (日期是否早于)</option>
+                                      <option value="isAfter">isAfter (日期是否晚于)</option>
+                                      <option value="isEqual">isEqual (日期是否相等)</option>
+                                      <option value="format">format (日期格式化)</option>
+                                    </template>
+                                  </select>
+                                </div>
+                              </div>
+                              
+                              <div v-if="groupItem.filterFunction">
+                                <div class="filter-actions">
+                                  <button @click="addFilterOperand(groupItem)" class="btn btn-success">
+                                    ➕ 添加参数
+                                  </button>
+                                </div>
+                                
+                                <div v-if="!groupItem.operands || groupItem.operands.length === 0" class="empty-filter">
+                                  还没有添加参数，点击上方按钮添加
+                                </div>
+                                
+                                <div v-for="(operand, operandIndex) in groupItem.operands" :key="operand.id" class="filter-operand">
+                                  <div class="filter-row">
+                                    <div class="param-input">
+                                      <span class="param-label">参数 {{ operandIndex + 1 }} 类型：</span>
+                                      <select v-model="operand.type" class="select-input">
+                                        <option value="field">字段</option>
+                                        <option value="value">手动输入</option>
+                                        <option value="step">步骤</option>
+                                      </select>
+                                    </div>
+                                    <div class="param-input" v-if="operand.type === 'field'">
+                                      <input
+                                        v-model="operand.typeValue"
+                                        class="text-input"
+                                        placeholder="输入或选择字段"
+                                        :list="'operand-fields-list-' + groupItem.id + '-' + operand.id"
+                                        style="flex: 1;"
+                                      />
+                                      <datalist :id="'operand-fields-list-' + groupItem.id + '-' + operand.id">
+                                        <option v-for="field in parsedFields" :key="field" :value="'input.' + field">
+                                          input.{{ field }}
+                                        </option>
+                                      </datalist>
+                                    </div>
+                                    <div class="param-input" v-if="operand.type === 'value'">
+                                      <input type="text" v-model="operand.typeValue" class="text-input" placeholder="输入值" />
+                                    </div>
+                                    <div class="param-input" v-if="operand.type === 'step'">
+                                      <select v-model="operand.typeValue" class="select-input">
+                                        <option value="">
+                                          {{ logicSteps.length <= 1 ? '无可用步骤' : '-- 选择步骤 --' }}
+                                        </option>
+                                        <template v-for="(s, idx) in logicSteps" :key="s.id">
+                                          <option v-if="idx !== currentStep" :value="idx">
+                                            步骤 {{ idx + 1 }}
+                                          </option>
+                                        </template>
+                                      </select>
+                                    </div>
+                                    <button @click="removeFilterOperand(groupItem, operandIndex)" class="btn-icon btn-icon-danger" title="删除参数">
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div v-if="groupItem.type === 'group'" class="nested-group" :class="'level-' + groupItem.level">
+                              <div class="nested-group-header">
+                                <div class="nested-group-title">
+                                  <span>📦 嵌套组 (层 {{ groupItem.level }})</span>
+                                  <div v-if="groupItemIndex > 0" class="logic-operator">
+                                    <select v-model="groupItem.logicOperator" class="select-input">
+                                      <option value="&&">与</option>
+                                      <option value="||">或</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div style="display: flex; gap: 8px;">
+                                  <button @click="addFilterConditionToGroup(groupItem)" class="btn btn-success btn-sm">
+                                    ➕ 添加条件
+                                  </button>
+                                  <button v-if="groupItem.level < 2" @click="addNestedGroupToGroup(step, groupItem)" class="btn btn-warning btn-sm" :disabled="!canAddNestedGroup(step, groupItem.level)">
+                                    📦 添加嵌套
+                                  </button>
+                                  <button @click="removeFilterItemFromGroup(item, groupItemIndex)" class="btn-icon btn-icon-danger" title="删除嵌套组">
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                              
+                              <div v-if="!groupItem.items || groupItem.items.length === 0" class="empty-filter">
+                                嵌套组内还没有条件，点击上方按钮添加
+                              </div>
+                              
+                              <template v-for="(subItem, subItemIndex) in groupItem.items" :key="subItem.id">
+                                <div v-if="subItem.type === 'condition'" class="filter-condition-block">
+                                  <div class="filter-condition-header">
+                                    <div v-if="subItemIndex > 0" class="logic-operator">
+                                      <select v-model="subItem.logicOperator" class="select-input">
+                                        <option value="&&">与</option>
+                                        <option value="||">或</option>
+                                      </select>
+                                    </div>
+                                    <button @click="removeFilterItemFromGroup(groupItem, subItemIndex)" class="btn-icon btn-icon-danger" title="删除条件">
+                                      ✕
+                                    </button>
+                                  </div>
+                                  
+                                  <div class="filter-row">
+                                    <div class="param-input">
+                                      <span class="param-label">函数分类：</span>
+                                      <select v-model="subItem.functionCategory[0]" class="select-input" @change="onFunctionCategoryChange(subItem)">
+                                        <option value="">-- 选择函数分类 --</option>
+                                        <option value="string">字符处理</option>
+                                        <option value="number">数值处理</option>
+                                        <option value="date">日期处理</option>
+                                      </select>
+                                    </div>
+                                    <div class="param-input" v-if="subItem.functionCategory[0]">
+                                      <span class="param-label">具体函数：</span>
+                                      <select v-model="subItem.filterFunction" @change="onFilterFunctionChange(subItem)" class="select-input">
+                                        <option value="">-- 选择函数 --</option>
+                                        <!-- 字符串函数 -->
+                                        <template v-if="subItem.functionCategory[0] === 'string'">
+                                          <option value="equals">equals (判断相等)</option>
+                                          <option value="length">length (字符串长度)</option>
+                                          <option value="concat">concat (字符拼接)</option>
+                                          <option value="includes">includes (字符是否包含)</option>
+                                        </template>
+                                        <!-- 数字函数 -->
+                                        <template v-if="subItem.functionCategory[0] === 'number'">
+                                          <option value="sum">sum (求和)</option>
+                                          <option value="max">max (取最大值)</option>
+                                          <option value="min">min (取最小值)</option>
+                                          <option value="avg">avg (平均值)</option>
+                                        </template>
+                                        <!-- 日期函数 -->
+                                        <template v-if="subItem.functionCategory[0] === 'date'">
+                                          <option value="withinLast3Months">withinLast3Months (是否在近三月)</option>
+                                          <option value="withinLast6Months">withinLast6Months (是否在近六月)</option>
+                                          <option value="withinLast9Months">withinLast9Months (是否在近九月)</option>
+                                          <option value="withinLast12Months">withinLast12Months (是否在近十二月)</option>
+                                          <option value="days_between">days_between (计算天数差)</option>
+                                          <option value="months_between">months_between (计算月数差)</option>
+                                          <option value="years_between">years_between (计算年数差)</option>
+                                          <option value="isBefore">isBefore (日期是否早于)</option>
+                                          <option value="isAfter">isAfter (日期是否晚于)</option>
+                                          <option value="isEqual">isEqual (日期是否相等)</option>
+                                          <option value="format">format (日期格式化)</option>
+                                        </template>
+                                      </select>
+                                    </div>
+                                  </div>
+                                  
+                                  <div v-if="subItem.filterFunction">
+                                    <div class="filter-actions">
+                                      <button @click="addFilterOperand(subItem)" class="btn btn-success">
+                                        ➕ 添加参数
+                                      </button>
+                                    </div>
+                                    
+                                    <div v-if="!subItem.operands || subItem.operands.length === 0" class="empty-filter">
+                                      还没有添加参数，点击上方按钮添加
+                                    </div>
+                                    
+                                    <div v-for="(operand, operandIndex) in subItem.operands" :key="operand.id" class="filter-operand">
+                                      <div class="filter-row">
+                                        <div class="param-input">
+                                          <span class="param-label">参数 {{ operandIndex + 1 }} 类型：</span>
+                                          <select v-model="operand.type" class="select-input">
+                                            <option value="field">字段</option>
+                                            <option value="value">手动输入</option>
+                                            <option value="step">步骤</option>
+                                          </select>
+                                        </div>
+                                        <div class="param-input" v-if="operand.type === 'field'">
+                                          <input
+                                            v-model="operand.typeValue"
+                                            class="text-input"
+                                            placeholder="输入或选择字段"
+                                            :list="'operand-fields-list-' + subItem.id + '-' + operand.id"
+                                            style="flex: 1;"
+                                          />
+                                          <datalist :id="'operand-fields-list-' + subItem.id + '-' + operand.id">
+                                            <option v-for="field in parsedFields" :key="field" :value="'input.' + field">
+                                              input.{{ field }}
+                                            </option>
+                                          </datalist>
+                                        </div>
+                                        <div class="param-input" v-if="operand.type === 'value'">
+                                          <input type="text" v-model="operand.typeValue" class="text-input" placeholder="输入值" />
+                                        </div>
+                                        <div class="param-input" v-if="operand.type === 'step'">
+                                          <select v-model="operand.typeValue" class="select-input">
+                                            <option value="">
+                                              {{ logicSteps.length <= 1 ? '无可用步骤' : '-- 选择步骤 --' }}
+                                            </option>
+                                            <template v-for="(s, idx) in logicSteps" :key="s.id">
+                                              <option v-if="idx !== currentStep" :value="idx">
+                                                步骤 {{ idx + 1 }}
+                                              </option>
+                                            </template>
+                                          </select>
+                                        </div>
+                                        <button @click="removeFilterOperand(subItem, operandIndex)" class="btn-icon btn-icon-danger" title="删除参数">
+                                          ✕
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </template>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+                
+                    <!-- 添加执行逻辑按钮 -->
+                    <div class="filter-actions" style="margin-top: 16px;">
+                      <button @click="addFilterLogic(step)" class="btn btn-info" style="margin-right: 10px;">
+                        ➕ 满足条件时执行
+                      </button>
+                      <button @click="addReverseLogic(step)" class="btn btn-warning">
+                        ➕ 条件不符时执行
+                      </button>
+                    </div>
+
+                    <!-- 满足条件时执行模块（只在有数据时显示） -->
+                  <div v-if="step.filterLogic && step.filterLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #2193b0;">
+                    <div class="filter-actions">
+                      <h4 style="margin: 0; color: #2193b0; display: inline-block;">满足条件时执行</h4>
+                    </div>
+
+                    <div v-for="(logic, logicIndex) in step.filterLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #2193b0;">
+                      <div class="filter-condition-header">
+                        <div class="logic-operator" style="max-width: 200px;">
+                          <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
+                          <select v-model="logic.type" class="select-input">
+                            <option value="">-- 选择执行操作 --</option>
+                            <option value="count">计数</option>
+                            <option value="sum">求和</option>
+                            <option value="distinct">去重</option>
+                          </select>
+                        </div>
+                        <button @click="removeFilterLogic(step, logicIndex)" class="btn-icon btn-icon-danger" title="删除逻辑">
+                          ✕
+                        </button>
+                      </div>
+
+                      <!-- 计数 -->
+                      <div v-if="logic.type === 'count'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">计数方式：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="all">统计所有符合条件的记录数</option>
+                            <option v-for="field in parsedFields" :key="'count_'+field" :value="field">统计 {{ field }} 字段非空值数量</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <!-- 求和 -->
+                      <div v-if="logic.type === 'sum'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">求和字段：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="">选择数值字段</option>
+                            <option v-for="field in parsedFields" :key="field" :value="field">{{ field }}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <!-- 去重 -->
+                      <div v-if="logic.type === 'distinct'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">去重字段：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="">选择要去除重复的字段</option>
+                            <option v-for="field in parsedFields" :key="field" :value="field">{{ field }}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div class="input-group" style="margin-top: 12px;">
+                        <label style="font-size: 0.85rem;">逻辑说明</label>
+                        <input type="text" v-model="logic.comment" class="text-input" placeholder="该逻辑的作用说明..." style="padding: 8px;" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 条件不符时执行模块（只在有数据时显示） -->
+                  <div v-if="step.reverseLogic && step.reverseLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #f45c43;">
+                    <div class="filter-actions">
+                      <h4 style="margin: 0; color: #f45c43; display: inline-block;">条件不符时执行</h4>
+                    </div>
+
+                    <div v-for="(logic, logicIndex) in step.reverseLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #f45c43;">
+                      <div class="filter-condition-header">
+                        <div class="logic-operator" style="max-width: 200px;">
+                          <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
+                          <select v-model="logic.type" class="select-input">
+                            <option value="">-- 选择执行操作 --</option>
+                            <option value="count">计数</option>
+                            <option value="sum">求和</option>
+                            <option value="distinct">去重</option>
+                          </select>
+                        </div>
+                        <button @click="removeReverseLogic(step, logicIndex)" class="btn-icon btn-icon-danger" title="删除逻辑">
+                          ✕
+                        </button>
+                      </div>
+
+                      <!-- 计数 -->
+                      <div v-if="logic.type === 'count'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">计数方式：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="all">统计所有符合条件的记录数</option>
+                            <option v-for="field in parsedFields" :key="'count_'+field" :value="field">统计 {{ field }} 字段非空值数量</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <!-- 求和 -->
+                      <div v-if="logic.type === 'sum'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">求和字段：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="">选择数值字段</option>
+                            <option v-for="field in parsedFields" :key="field" :value="field">{{ field }}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <!-- 去重 -->
+                      <div v-if="logic.type === 'distinct'" class="filter-row">
+                        <div class="param-input">
+                          <span class="param-label">去重字段：</span>
+                          <select v-model="logic.value" class="select-input">
+                            <option value="">选择要去除重复的字段</option>
+                            <option v-for="field in parsedFields" :key="field" :value="field">{{ field }}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div class="input-group" style="margin-top: 12px;">
+                        <label style="font-size: 0.85rem;">逻辑说明</label>
+                        <input type="text" v-model="logic.comment" class="text-input" placeholder="该逻辑的作用说明..." style="padding: 8px;" />
+                      </div>
+                    </div>
+                  </div>
+
+                <div class="input-group">
+                  <label>备注说明</label>
+                  <input type="text" v-model="step.comment" class="text-input" placeholder="这一步的作用说明..." />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right-panel">
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <script>
+     const { createApp, ref, reactive, computed, watch, onMounted } = Vue; 
+
+    const TreeNode = {
+      props: ['node', 'depth'],
+      template: `
+        <div class="tree-node">
+          <div class="tree-node-row" 
+               :class="{ 
+                 'is-leaf': !node.children || node.children.length === 0,
+                 'is-object': node.children && node.children.length > 0,
+                 'is-selected': node.selected
+               }"
+               @click="toggleNode">
+            <span class="tree-toggle" :class="{ 'is-leaf': !node.children || node.children.length === 0 }">
+              {{ node.expanded ? '▼' : (node.children && node.children.length > 0 ? '▶' : '') }}
+            </span>
+            <div class="tree-node-content">
+              <span class="tree-key" :class="{ 'is-leaf': !node.children || node.children.length === 0 }">
+                <span class="tree-node-icon">{{ getNodeIcon(node) }}</span>
+                {{ node.key }}
+              </span>
+              <span class="tree-path">{{ node.path }}</span>
+              <span class="tree-type" :class="node.type">{{ getTypeLabel(node.type) }}</span>
+              <span v-if="node.selected" class="tree-checkbox">✓</span>
+            </div>
+          </div>
+          <div v-if="node.expanded && node.children && node.children.length > 0" class="tree-children">
+            <tree-node 
+              v-for="child in node.children" 
+              :key="child.key"
+              :node="child" 
+              :depth="depth + 1"
+            ></tree-node>
+          </div>
+        </div>
+      `,
+      methods: {
+        toggleNode() {
+          if (this.node.children && this.node.children.length > 0) {
+            this.$emit('toggle', this.node);
+          }
+        },
+        getNodeIcon(node) {
+          if (!node.children || node.children.length === 0) {
+            return '📄';
+          }
+          return node.expanded ? '📂' : '📁';
+        },
+        getTypeLabel(type) {
+          const labels = {
+            string: '字符串',
+            number: '数字',
+            boolean: '布尔',
+            array: '数组',
+            object: '对象'
+          };
+          return labels[type] || type;
+        }
+      }
+    };
+
+    const app = createApp({
+      setup() {
+        const jsonInput = ref('');
+        const parsedFields = ref([]);
+        const fieldTree = ref([]);
+        const logicSteps = ref([]);
+        const currentStep = ref(0);
+        const showPreview = ref(true);
+        const apiConfig = reactive({
+          name: '',
+          description: '',
+          method: 'GET',
+          path: ''
+        });
+
+        const basicFunctions = {
+          string: [
+            { name: 'equals', description: '判断相等', params: [{ name: '比较值', placeholder: 'value' }] },
+            { name: 'length', description: '字符串长度', params: [] },
+            { name: 'concat', description: '字符拼接', params: [{ name: '拼接内容', placeholder: '_suffix' }] },
+            { name: 'includes', description: '字符是否包含', params: [{ name: '比较值', placeholder: 'substring' }] }
+          ],
+          number: [
+            { name: 'arithmetic', description: '四则运算', params: [] },
+            { name: 'sum', description: '求和', params: [] },
+            { name: 'max', description: '取最大值', params: [] },
+            { name: 'min', description: '取最小值', params: [] },
+            { name: 'avg', description: '平均值', params: [] }
+          ],
+          date: [
+            { name: 'withinLast3Months', description: '是否在近三月', params: [] },
+            { name: 'withinLast6Months', description: '是否在近六月', params: [] },
+            { name: 'withinLast9Months', description: '是否在近九月', params: [] },
+            { name: 'withinLast12Months', description: '是否在近十二月', params: [] },
+            { name: 'days_between', description: '计算天数差', params: [{ name: '结束日期', placeholder: 'date' }] },
+            { name: 'months_between', description: '计算月数差', params: [{ name: '结束日期', placeholder: 'date' }] },
+            { name: 'years_between', description: '计算年数差', params: [{ name: '结束日期', placeholder: 'date' }] },
+            { name: 'isBefore', description: '日期是否早于', params: [{ name: '比较日期', placeholder: 'date' }] },
+            { name: 'isAfter', description: '日期是否晚于', params: [{ name: '比较日期', placeholder: 'date' }] },
+            { name: 'isEqual', description: '日期是否相等', params: [{ name: '比较日期', placeholder: 'date' }] },
+            { name: 'format', description: '日期格式化', params: [{ name: '格式', placeholder: 'yyyy-MM-dd' }] }
+          ],
+          filter: [
+            { name: '计数', description: '根据条件计数', params: [] },
+            { name: '求和', description: '根据条件求和', params: [] }
+          ]
+        };
+
+        const functionCategories = [
+          { value: 'direct', name: '直接映射', icon: '🔄', color: '#667eea' },
+          { value: 'calculation', name: '计算处理', icon: '🧮', color: '#f093fb' },
+          { value: 'filter', name: '条件筛选', icon: '🔍', color: '#11998e' },
+          { value: 'custom', name: '自定义逻辑', icon: '✏️', color: '#ff6b6b' }
+        ];
+
+        let nextId = 1;
+        
+        const generateId = () => nextId++;
+
+        const parseJson = () => {
+          try {
+            const data = JSON.parse(jsonInput.value);
+            parsedFields.value = [];
+            fieldTree.value = buildFieldTree(data, '');
+            
+            alert('JSON 解析成功！');
+          } catch (e) {
+            alert('JSON 格式错误：' + e.message);
+          }
+        };
+
+        const buildFieldTree = (obj, parentPath) => {
+          const nodes = [];
+          
+          for (const key in obj) {
+            const value = obj[key];
+            const currentPath = parentPath ? `${parentPath}.${key}` : key;
+            const type = Array.isArray(value) ? 'array' : typeof value;
+            
+            const node = {
+              key,
+              path: currentPath,
+              type,
+              expanded: false,
+              selected: false
+            };
+            
+            if (type === 'object' && !Array.isArray(value)) {
+              node.children = buildFieldTree(value, currentPath);
+            } else if (type === 'array' && value.length > 0 && typeof value[0] === 'object') {
+              node.children = buildFieldTree(value[0], currentPath + '[0]');
+            }
+            
+            nodes.push(node);
+            if (!parsedFields.value.includes(currentPath)) {
+              parsedFields.value.push(currentPath);
+            }
+          }
+          
+          return nodes;
+        };
+
+        const insertFieldToCurrent = (fieldPath) => {
+          if (logicSteps.value.length === 0) {
+            addStep();
+          }
+          
+          const step = logicSteps.value[currentStep.value];
+          if (step && !step.mappedField) {
+            step.mappedField = fieldPath;
+          }
+        };
+
+        const insertFunction = (funcName) => {
+          if (logicSteps.value.length === 0) {
+            addStep();
+          }
+          
+          const step = logicSteps.value[currentStep.value];
+          if (step && !step.functionName) {
+            step.functionName = funcName;
+            step.functionCategory = ['string'];
+          }
+        };
+
+        const addStep = () => {
+          const newStep = {
+            id: generateId(),
+            functionCategory: [''],
+            functionName: '',
+            field: '',
+            mappedField: '',
+            filterScope: '',
+            customExpression: '',
+            outputVar: '',
+            comment: '',
+            collapsed: false,
+            params: [],
+            filterItems: [],
+            filterLogic: [],
+            reverseLogic: [],
+            calculationSteps: []
+          };
+          
+          logicSteps.value.push(newStep);
+          currentStep.value = logicSteps.value.length - 1;
+        };
+
+        const removeStep = (index) => {
+          logicSteps.value.splice(index, 1);
+          if (currentStep.value >= logicSteps.value.length) {
+            currentStep.value = Math.max(0, logicSteps.value.length - 1);
+          }
+        };
+
+        const duplicateStep = (index) => {
+          const original = logicSteps.value[index];
+          const copy = JSON.parse(JSON.stringify(original));
+          copy.id = generateId();
+          logicSteps.value.splice(index + 1, 0, copy);
+          currentStep.value = index + 1;
+        };
+
+        const moveStep = (index, direction) => {
+          const newIndex = index + direction;
+          if (newIndex >= 0 && newIndex < logicSteps.value.length) {
+            const item = logicSteps.value.splice(index, 1)[0];
+            logicSteps.value.splice(newIndex, 0, item);
+            currentStep.value = newIndex;
+          }
+        };
+
+        const toggleCollapse = (step) => {
+          step.collapsed = !step.collapsed;
+        };
+
+        const onCategoryChange = (step) => {
+          step.filterItems = [];
+          step.filterLogic = [];
+          step.reverseLogic = [];
+          step.calculationSteps = [];
+          step.functionName = '';
+          step.field = '';
+          step.mappedField = '';
+          step.filterScope = '';
+          step.customExpression = '';
+        };
+
+        const onFunctionChange = (step) => {
+          const category = basicFunctions[step.functionCategory[0]];
+          if (category) {
+            const func = category.find(f => f.name === step.functionName);
+            if (func) {
+              step.params = func.params.map(p => '');
+            }
+          }
+        };
+
+        const getFunctionParams = (category) => {
+          return basicFunctions[category] || [];
+        };
+
+        const getArrayOrObjectFields = () => {
+          return fieldTree.value.filter(node => 
+            node.type === 'array' || (node.type === 'object' && node.children && node.children.length > 0)
+          );
+        };
+
+        const getAllFields = () => {
+          const fields = [];
+          const collectFields = (nodes) => {
+            nodes.forEach(node => {
+              fields.push({ key: node.path, type: node.type });
+              if (node.children) {
+                collectFields(node.children);
+              }
+            });
+          };
+          collectFields(fieldTree.value);
+          return fields;
+        };
+
+        const clearAll = () => {
+          if (confirm('确定要清空所有业务逻辑步骤吗？')) {
+            logicSteps.value = [];
+            currentStep.value = 0;
+          }
+        };
+
+        const apiBaseUrl = 'http://localhost:8080/api';
+        const editingId = ref(null);
+
+        const saveToBackend = async () => {
+          try {
+
+            const data = {
+              name: '接口名称',
+              description: apiConfig.description || '',
+              jsonInput: jsonInput.value,
+              logicSteps: logicSteps.value.map(step => ({
+                ...step,
+                id: undefined
+              }))
+            };
+
+            console.log('保存到后端的数据:', data);
+
+            let response;
+            if (editingId.value) {
+              response = await fetch(`${apiBaseUrl}/business-logic/${editingId.value}`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+              });
+            } else {
+              response = await fetch(`${apiBaseUrl}/business-logic`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+              });
+            }
+
+            const result = await response.json();
+
+            if (result.code === 200) {
+              alert(editingId.value ? '更新成功！' : '保存成功！');
+              if (!editingId.value && result.data?.id) {
+                editingId.value = result.data.id;
+              }
+            } else {
+              alert((editingId.value ? '更新' : '保存') + '失败：' + (result.message || '未知错误'));
+            }
+          } catch (error) {
+            console.error('保存失败:', error);
+            alert('保存失败：' + error.message);
+          }
+        };
+
+        const convertFunctionCategoryToArray = (data) => {
+          if (!data.functionCategory || data.functionCategory === '') {
+            data.functionCategory = [''];
+          } else if (typeof data.functionCategory === 'string') {
+            data.functionCategory = [data.functionCategory];
+          } else if (!Array.isArray(data.functionCategory) || data.functionCategory.length === 0) {
+            data.functionCategory = [''];
+          } else if (typeof data.functionCategory[0] !== 'string') {
+            data.functionCategory = [String(data.functionCategory[0] || '')];
+          }
+
+          if (data.filterItems && data.filterItems.length > 0) {
+            data.filterItems.forEach(item => {
+              if (!item.functionCategory || item.functionCategory === '') {
+                item.functionCategory = [''];
+              } else if (typeof item.functionCategory === 'string') {
+                item.functionCategory = [item.functionCategory];
+              } else if (!Array.isArray(item.functionCategory) || item.functionCategory.length === 0) {
+                item.functionCategory = [''];
+              } else if (typeof item.functionCategory[0] !== 'string') {
+                item.functionCategory = [String(item.functionCategory[0] || '')];
+              }
+              if (item.items && item.items.length > 0) {
+                item.items.forEach(subItem => {
+                  if (!subItem.functionCategory || subItem.functionCategory === '') {
+                    subItem.functionCategory = [''];
+                  } else if (typeof subItem.functionCategory === 'string') {
+                    subItem.functionCategory = [subItem.functionCategory];
+                  } else if (!Array.isArray(subItem.functionCategory) || subItem.functionCategory.length === 0) {
+                    subItem.functionCategory = [''];
+                  } else if (typeof subItem.functionCategory[0] !== 'string') {
+                    subItem.functionCategory = [String(subItem.functionCategory[0] || '')];
+                  }
+                  if (subItem.items && subItem.items.length > 0) {
+                    subItem.items.forEach(nestedItem => {
+                      if (!nestedItem.functionCategory || nestedItem.functionCategory === '') {
+                        nestedItem.functionCategory = [''];
+                      } else if (typeof nestedItem.functionCategory === 'string') {
+                        nestedItem.functionCategory = [nestedItem.functionCategory];
+                      } else if (!Array.isArray(nestedItem.functionCategory) || nestedItem.functionCategory.length === 0) {
+                        nestedItem.functionCategory = [''];
+                      } else if (typeof nestedItem.functionCategory[0] !== 'string') {
+                        nestedItem.functionCategory = [String(nestedItem.functionCategory[0] || '')];
+                      }
+                    });
+                  }
+                });
+              }
+            });
+          }
+
+
+          if (data.calculationSteps && data.calculationSteps.length > 0) {
+            data.calculationSteps.forEach(calcStep => {
+              if (!calcStep.functionCategory || calcStep.functionCategory === '') {
+                calcStep.functionCategory = [''];
+              } else if (typeof calcStep.functionCategory === 'string') {
+                calcStep.functionCategory = [calcStep.functionCategory];
+              } else if (!Array.isArray(calcStep.functionCategory) || calcStep.functionCategory.length === 0) {
+                calcStep.functionCategory = [''];
+              } else if (typeof calcStep.functionCategory[0] !== 'string') {
+                calcStep.functionCategory = [String(calcStep.functionCategory[0] || '')];
+              }
+            });
+          }
+          return data;
+        };
+
+        const loadBusinessLogic = async (id) => {
+          try {
+            const response = await fetch(`${apiBaseUrl}/business-logic/${id}`);
+            const result = await response.json();
+
+            if (result.code === 200 && result.data) {
+              const data = result.data;
+              editingId.value = data.id;
+              apiConfig.name = data.name || '';
+              apiConfig.description = data.description || '';
+
+              if (data.jsonInput) {
+                jsonInput.value = data.jsonInput;
+                parseJson();
+              }
+
+              if (data.logicSteps && data.logicSteps.length > 0) {
+                logicSteps.value = data.logicSteps.map(step => ({
+                  ...convertFunctionCategoryToArray({ ...step }),
+                  collapsed: false
+                }));
+              }
+
+              console.log('加载业务逻辑成功:', data);
+            } else {
+              alert('加载失败：' + (result.message || '未知错误'));
+            }
+          } catch (error) {
+            console.error('加载失败:', error);
+            alert('加载失败：' + error.message);
+          }
+        };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlId = urlParams.get('id');
+        if (urlId) {
+          loadBusinessLogic(urlId);
+        }
+
+        const executeOnBackend = async () => {
+          try {
+            if (!editingId.value) {
+              alert('请先保存业务逻辑！');
+              return;
+            }
+
+            const testInput = prompt('请输入测试数据（JSON格式）：', '{"key": "value"}');
+            if (!testInput) return;
+
+            let inputData;
+            try {
+              inputData = JSON.parse(testInput);
+            } catch (e) {
+              alert('JSON格式错误：' + e.message);
+              return;
+            }
+
+            const response = await fetch(`${apiBaseUrl}/business-logic/${editingId.value}/execute`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(inputData)
+            });
+
+            const result = await response.json();
+
+            if (result.code === 200) {
+              alert('执行成功！\n结果：' + JSON.stringify(result.data?.result, null, 2));
+            } else {
+              alert('执行失败：' + (result.message || '未知错误'));
+            }
+          } catch (error) {
+            console.error('执行失败:', error);
+            alert('执行失败：' + error.message);
+          }
+        };
+
+        const viewExpression = async () => {
+          try {
+            const expression = generatedCode.value;
+            console.log('生成的表达式:', expression);
+            alert('表达式已生成，请查看控制台或右侧预览区域');
+          } catch (error) {
+            alert('查看表达式失败：' + error.message);
+          }
+        };
+
+        const viewSaveParams = () => {
+          const params = {
+            apiConfig: { ...apiConfig },
+            stepsCount: logicSteps.value.length,
+            steps: logicSteps.value.map((step, index) => ({
+              stepNumber: index + 1,
+              category: step.functionCategory[0],
+              function: step.functionName,
+              field: step.field || step.mappedField,
+              hasConditions: step.filterItems && step.filterItems.length > 0,
+              outputVar: step.outputVar
+            }))
+          };
+          
+          console.log('保存参数:', JSON.stringify(params, null, 2));
+          alert('参数已输出到控制台');
+        };
+
+        const addFilterCondition = (step) => {
+          if (!step.filterItems) {
+            step.filterItems = [];
+          }
+          step.filterItems.push({
+            id: generateId(),
+            type: 'condition',
+            logicOperator: '&&',
+            functionCategory: [''],
+            filterFunction: '',
+            operands: []
+          });
+        };
+
+        const removeFilterItem = (step, index) => {
+          step.filterItems.splice(index, 1);
+        };
+
+        const addFilterOperand = (item) => {
+          if (!item.operands) {
+            item.operands = [];
+          }
+          item.operands.push({
+            id: generateId(),
+            type: 'field',
+            value: '',
+            stepIndex: null
+          });
+        };
+
+        const removeFilterOperand = (item, index) => {
+          item.operands.splice(index, 1);
+        };
+
+        const addFilterLogic = (step) => {
+          step.reverseLogic = [];
+          if (!step.filterLogic) {
+            step.filterLogic = [];
+          }
+          step.filterLogic.push({
+            id: Date.now(),
+            type: '',
+            value: '',
+            comment: ''
+          });
+        };
+
+        const removeFilterLogic = (step, logicIndex) => {
+          step.filterLogic.splice(logicIndex, 1);
+        };
+
+        const addReverseLogic = (step) => {
+          step.filterLogic = [];
+          if (!step.reverseLogic) {
+            step.reverseLogic = [];
+          }
+          step.reverseLogic.push({
+            id: Date.now(),
+            type: '',
+            value: '',
+            comment: ''
+          });
+        };
+
+        const removeReverseLogic = (step, logicIndex) => {
+          step.reverseLogic.splice(logicIndex, 1);
+        };
+
+        const addNestedGroup = (step) => {
+          if (!step.filterItems) {
+            step.filterItems = [];
+          }
+          step.filterItems.push({
+            id: generateId(),
+            type: 'group',
+            level: 1,
+            logicOperator: '&&',
+            items: []
+          });
+        };
+
+        const addFilterConditionToGroup = (group) => {
+          if (!group.items) {
+            group.items = [];
+          }
+          group.items.push({
+            id: generateId(),
+            type: 'condition',
+            logicOperator: '&&',
+            functionCategory: [''],
+            filterFunction: '',
+            operands: []
+          });
+        };
+
+        const addNestedGroupToGroup = (step, parentGroup) => {
+          if (!parentGroup.items) {
+            parentGroup.items = [];
+          }
+          const newLevel = parentGroup.level + 1;
+          parentGroup.items.push({
+            id: generateId(),
+            type: 'group',
+            level: newLevel,
+            logicOperator: '&&',
+            items: []
+          });
+        };
+
+        const removeFilterItemFromGroup = (parent, index) => {
+          parent.items.splice(index, 1);
+        };
+
+        const canAddNestedGroup = (step, currentLevel) => {
+          return currentLevel < 2;
+        };
+
+        const onFunctionCategoryChange = (item) => {
+          item.filterFunction = '';
+          item.operands = [];
+        };
+
+        const onFilterFunctionChange = (item) => {
+          item.operands = [];
+        };
+
+        const addCalculationStep = (step) => {
+          if (!step.calculationSteps) {
+            step.calculationSteps = [];
+          }
+          step.calculationSteps.push({
+            id: generateId(),
+            logicOperator: '+',
+            functionCategory: [''],
+            filterFunction: '',
+            operands: []
+          });
+        };
+
+        const removeCalculationStep = (step, index) => {
+          step.calculationSteps.splice(index, 1);
+        };
+
+        const updateNodeSelection = (nodes, selectedField, isSelected) => {
+          for (const node of nodes) {
+            if (node.key === selectedField) {
+              node.selected = isSelected;
+              return true;
+            }
+            if (node.children && node.children.length > 0) {
+              if (updateNodeSelection(node.children, selectedField, isSelected)) {
+                return true;
+              }
+            }
+          }
+          return false;
+        };
+
+        const watchField = (getter, fieldName) => {
+          watch(getter, (newValue) => {
+            if (newValue) {
+              updateNodeSelection(fieldTree.value, newValue, true);
+              fieldTree.value = [...fieldTree.value];
+            }
+          }, { immediate: true });
+        };
+
+        const addStepListeners = (step) => {
+          watchField(() => step.mappedField, 'mappedField');
+          watchField(() => step.field, 'field');
+        };
+
+        logicSteps.value.forEach(step => {
+          addStepListeners(step);
+        });
+
+        const getUsedFields = computed(() => {
+          const usedFields = new Set();
+          
+          logicSteps.value.forEach((step) => {
+            if (step.field) {
+              usedFields.add(step.field);
+            }
+            if (step.mappedField) {
+              usedFields.add(step.mappedField);
+            }
+            if (step.filterItems && step.filterItems.length > 0) {
+              const collectFieldsFromItem = (item) => {
+                if (item.type === 'condition' && item.operands) {
+                  item.operands.forEach(operand => {
+                    if (operand.type === 'field' && operand.typeValue) {
+                      usedFields.add(operand.typeValue);
+                    }
+                  });
+                } else if (item.type === 'group' && item.items) {
+                  item.items.forEach(subItem => collectFieldsFromItem(subItem));
+                }
+              };
+              step.filterItems.forEach(item => collectFieldsFromItem(item));
+            }
+            if (step.calculationSteps && step.calculationSteps.length > 0) {
+              step.calculationSteps.forEach(calcStep => {
+                if (calcStep.operands) {
+                  calcStep.operands.forEach(operand => {
+                    if (operand.type === 'field' && operand.typeValue) {
+                      usedFields.add(operand.typeValue);
+                    }
+                  });
+                }
+              });
+            }
+          });
+          
+          return Array.from(usedFields);
+        });
+
+        const generatedCode = computed(() => {
+          let code = `// ============================================\n`;
+          code += `// 接口名称: ${apiConfig.name || 'custom_api'}\n`;
+          code += `// 接口路径: ${apiConfig.method} ${apiConfig.path}\n`;
+          code += `// ============================================\n\n`;
+          
+          if (jsonInput.value) {
+            code += `// 接口入参示例:\n`;
+            code += `// ${jsonInput.value.replace(/\n/g, '\n// ')}\n\n`;
+          }
+          
+          code += `async function executeLogic(input) {\n`;
+          code += `  const currentDate = new Date();\n`;
+          
+          logicSteps.value.forEach((step, index) => {
+            code += `  // 步骤 ${index + 1}: ${step.comment || '无说明'}\n`;
+            if (step.functionCategory[0] === 'custom' && step.customExpression) {
+              code += `  let ${step.outputVar || `step${index + 1}`} = ${step.customExpression};\n`;
+            } else if (step.functionCategory[0] === 'direct') {
+              const fieldValue = step.mappedField ? `input.${step.mappedField}` : 'input';
+              code += `  let ${step.outputVar || `step${index + 1}`} = ${fieldValue};\n`;
+            } else if (step.functionCategory[0] === 'calculation') {
+              if (step.calculationSteps && step.calculationSteps.length > 0) {
+                let calcExpr = '';
+                step.calculationSteps.forEach((calcStep, calcIndex) => {
+                  if (calcIndex > 0 && calcStep.logicOperator) {
+                    calcExpr += ` ${calcStep.logicOperator} `;
+                  }
+                  
+                  if (calcStep.operands && calcStep.operands.length > 0) {
+                    let operands = [];
+                    calcStep.operands.forEach(operand => {
+                      let operandStr = '';
+                      if (operand.type === 'field' && operand.typeValue) {
+                        operandStr = `input.${operand.typeValue}`;
+                      } else if (operand.type === 'value' && operand.typeValue) {
+                        const numValue = Number(operand.typeValue);
+                        operandStr = isNaN(numValue) ? `'${operand.typeValue}'` : numValue;
+                      } else if (operand.type === 'operator') {
+                        operandStr = operand.typeValue || '';
+                      }
+                      if (operandStr) {
+                        operands.push(operandStr);
+                      }
+                    });
+                    
+                    if (calcStep.filterFunction) {
+                      const fieldValue = operands[0] || 'input';
+                      const paramsStr = operands.slice(1).join(', ');
+                      
+                      let functionCall = '';
+                      if (calcStep.filterFunction === 'length') {
+                        functionCall = `${fieldValue}.length`;
+                      } else if (calcStep.filterFunction === 'concat') {
+                        functionCall = `${fieldValue}.concat(${paramsStr})`;
+                      } else if (calcStep.filterFunction === 'includes') {
+                        functionCall = `${fieldValue}.includes(${paramsStr})`;
+                      } else if (calcStep.filterFunction === 'equals') {
+                        functionCall = `${fieldValue} === ${paramsStr}`;
+                      } else if (calcStep.filterFunction === 'arithmetic') {
+                        functionCall = operands.join(' ');
+                      } else if (['sum', 'avg', 'max', 'min'].includes(calcStep.filterFunction)) {
+                        functionCall = `${calcStep.filterFunction}(${operands.join(', ')})`;
+                      } else if (['months_between', 'days_between', 'years_between'].includes(calcStep.filterFunction)) {
+                        functionCall = `${calcStep.filterFunction}(${fieldValue}, ${paramsStr})`;
+                      } else if (['isBefore', 'isAfter', 'isEqual'].includes(calcStep.filterFunction)) {
+                        functionCall = `${calcStep.filterFunction}(${fieldValue}, ${paramsStr})`;
+                      } else if (calcStep.filterFunction === 'format') {
+                        functionCall = `formatDate(${fieldValue}, '${paramsStr}')`;
+                      } else if (['withinLast3Months', 'withinLast6Months', 'withinLast9Months', 'withinLast12Months'].includes(calcStep.filterFunction)) {
+                        functionCall = `${calcStep.filterFunction}(${fieldValue})`;
+                      } else {
+                        functionCall = `${calcStep.filterFunction}(${fieldValue}${paramsStr ? ', ' + paramsStr : ''})`;
+                      }
+                      
+                      calcExpr += functionCall;
+                    }
+                  }
+                });
+                
+                code += `  let ${step.outputVar || `step${index + 1}`} = ${calcExpr};\n`;
+              }
+            } else if (step.functionCategory[0] === 'filter') {
+              if (step.filterItems && step.filterItems.length > 0) {
+                let conditions = [];
+                
+                const processFilterItems = (items) => {
+                  items.forEach((item) => {
+                    if (item.type === 'condition' && item.filterFunction) {
+                      let conditionStr = '';
+                      if (item.operands && item.operands.length > 0) {
+                        let operands = [];
+                        item.operands.forEach(operand => {
+                          let operandStr = '';
+                          if (operand.type === 'field' && operand.typeValue) {
+                            operandStr = `input.${operand.typeValue}`;
+                          } else if (operand.type === 'value' && operand.typeValue) {
+                            const numValue = Number(operand.typeValue);
+                            operandStr = isNaN(numValue) ? `'${operand.typeValue}'` : numValue;
+                          }
+                          if (operandStr) {
+                            operands.push(operandStr);
+                          }
+                        });
+                        
+                        if (item.filterFunction === 'includes') {
+                          conditionStr = `${operands[0]}.includes(${operands[1]})`;
+                        } else if (item.filterFunction === 'equals') {
+                          conditionStr = `${operands[0]} === ${operands[1]}`;
+                        } else if (item.filterFunction === 'length') {
+                          conditionStr = `${operands[0]}.length`;
+                        } else if (item.filterFunction === 'concat') {
+                          conditionStr = `${operands[0]}.concat(${operands.slice(1).join(', ')})`;
+                        } else if (['sum', 'max', 'min', 'avg'].includes(item.filterFunction)) {
+                          conditionStr = `${item.filterFunction}([${operands.join(', ')}])`;
+                        } else if (['months_between', 'days_between', 'years_between'].includes(item.filterFunction)) {
+                          conditionStr = `${item.filterFunction}(${operands.join(', ')})`;
+                        } else if (['isBefore', 'isAfter', 'isEqual'].includes(item.filterFunction)) {
+                          conditionStr = `${item.filterFunction}(${operands.join(', ')})`;
+                        } else if (item.filterFunction === 'format') {
+                          conditionStr = `formatDate(${operands.join(', ')})`;
+                        } else if (['withinLast3Months', 'withinLast6Months', 'withinLast9Months', 'withinLast12Months'].includes(item.filterFunction)) {
+                          conditionStr = `${item.filterFunction}(${operands[0]})`;
+                        }
+                      }
+                      
+                      if (conditionStr) {
+                        conditions.push({
+                          logicOperator: item.logicOperator,
+                          condition: conditionStr
+                        });
+                      }
+                    } else if (item.type === 'group' && item.items) {
+                      processFilterItems(item.items);
+                    }
+                  });
+                };
+                
+                processFilterItems(step.filterItems);
+                
+                if (conditions.length > 0) {
+                  let fullCondition = '';
+                  conditions.forEach((cond, condIndex) => {
+                    if (condIndex > 0 && cond.logicOperator) {
+                      fullCondition += ` ${cond.logicOperator} `;
+                    }
+                    fullCondition += `(${cond.condition})`;
+                  });
+                  
+                  if (step.filterLogic && step.filterLogic.length > 0) {
+                    const logic = step.filterLogic[0];
+                    if (logic.type === 'count') {
+                      code += `  let ${step.outputVar || `step${index + 1}`} = ${fullCondition} ? 1 : 0;\n`;
+                    } else if (logic.type === 'sum') {
+                      code += `  let ${step.outputVar || `step${index + 1}`} = ${fullCondition} ? (input.${logic.value} || 0) : 0;\n`;
+                    }
+                  } else {
+                    code += `  let ${step.outputVar || `step${index + 1}`} = ${fullCondition} ? true : false;\n`;
+                  }
+                }
+              }
+            }
+            code += '\n';
+          });
+          
+          code += `  return { success: true };\n`;
+          code += `}\n`;
+          
+          code += `\n// 辅助函数：计算两个日期之间的月数\n`;
+          code += `function months_between(date1, date2) {\n`;
+          code += `  const d1 = new Date(date1);\n`;
+          code += `  const d2 = new Date(date2);\n`;
+          code += `  const months = (d2.getFullYear() - d1.getFullYear()) * 12;\n`;
+          code += `  return months + (d2.getMonth() - d1.getMonth());\n`;
+          code += `}\n\n`;
+          
+          code += `// 辅助函数：计算两个日期之间的天数\n`;
+          code += `function days_between(date1, date2) {\n`;
+          code += `  const d1 = new Date(date1);\n`;
+          code += `  const d2 = new Date(date2);\n`;
+          code += `  const diffTime = Math.abs(d2 - d1);\n`;
+          code += `  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));\n`;
+          code += `  return diffDays;\n`;
+          code += `}\n\n`;
+          
+          code += `// 辅助函数：判断日期是否早于\n`;
+          code += `function isBefore(date1, date2) {\n`;
+          code += `  return new Date(date1) < new Date(date2);\n`;
+          code += `}\n\n`;
+          
+          code += `// 辅助函数：判断日期是否晚于\n`;
+          code += `function isAfter(date1, date2) {\n`;
+          code += `  return new Date(date1) > new Date(date2);\n`;
+          code += `}\n\n`;
+          
+          code += `// 辅助函数：判断日期是否相等\n`;
+          code += `function isEqual(date1, date2) {\n`;
+          code += `  const d1 = new Date(date1);\n`;
+          code += `  const d2 = new Date(date2);\n`;
+          code += `  return d1.getTime() === d2.getTime();\n`;
+          code += `}\n\n`;
+          
+          code += `// 辅助函数：日期格式化\n`;
+          code += `function formatDate(date, format) {\n`;
+          code += `  const d = new Date(date);\n`;
+          code += `  const year = d.getFullYear();\n`;
+          code += `  const month = String(d.getMonth() + 1).padStart(2, '0');\n`;
+          code += `  const day = String(d.getDate()).padStart(2, '0');\n`;
+          code += `  const hours = String(d.getHours()).padStart(2, '0');\n`;
+          code += `  const minutes = String(d.getMinutes()).padStart(2, '0');\n`;
+          code += `  const seconds = String(d.getSeconds()).padStart(2, '0');\n`;
+          code += `  \n`;
+          code += `  return format\n`;
+          code += `    .replace('yyyy', year)\n`;
+          code += `    .replace('MM', month)\n`;
+          code += `    .replace('dd', day)\n`;
+          code += `    .replace('HH', hours)\n`;
+          code += `    .replace('mm', minutes)\n`;
+          code += `    .replace('ss', seconds);\n`;
+          code += `}\n`;
+          
+          return code;
+        });
+
+        const copyCode = () => {
+          navigator.clipboard.writeText(generatedCode.value).then(() => {
+            alert('代码已复制到剪贴板！');
+          });
+        };
+
+        return {
+          jsonInput,
+          parsedFields,
+          fieldTree,
+          logicSteps,
+          currentStep,
+          showPreview,
+          apiConfig,
+          editingId,
+          basicFunctions,
+          functionCategories,
+          parseJson,
+          insertFieldToCurrent,
+          insertFunction,
+          addStep,
+          removeStep,
+          duplicateStep,
+          moveStep,
+          onCategoryChange,
+          onFunctionChange,
+          getFunctionParams,
+          getArrayOrObjectFields,
+          getAllFields,
+          clearAll,
+          saveToBackend,
+          loadBusinessLogic,
+          executeOnBackend,
+          viewExpression,
+          viewSaveParams,
+          generatedCode,
+          copyCode,
+          addFilterCondition,
+          removeFilterItem,
+          addFilterOperand,
+          removeFilterOperand,
+          addFilterLogic,
+          removeFilterLogic,
+          addReverseLogic,
+          removeReverseLogic,
+          addCalculationStep,
+          removeCalculationStep,
+          toggleCollapse,
+          onFunctionCategoryChange,
+          onFilterFunctionChange,
+          addNestedGroup,
+          addFilterConditionToGroup,
+          addNestedGroupToGroup,
+          removeFilterItemFromGroup,
+          canAddNestedGroup,
+          getUsedFields
+        };
+      },
+      components: {
+        TreeNode
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

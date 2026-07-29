@@ -1,0 +1,128 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: business-logic-editor
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/business_logic_editor?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: a135798462
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    default-property-inclusion: non_null
+
+  redis:
+    host: 127.0.0.1
+    port: 6379
+    username: default
+    password:
+    database: 0
+    timeout: 5000ms
+    connect-timeout: 5000ms
+    lettuce:
+      pool:
+        max-active: 8
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
+      shutdown-timeout: 200ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+aviator:
+  enabled: true
+  optimize: true
+
+grpc:
+  server:
+    port: 9090
+
+# ===== OpenFeign 缓存同步配置 =====
+feign:
+  # 全局开关
+  client:
+    config:
+      # 默认配置：所有 @FeignClient 共享
+      default:
+        connectTimeout: 1000
+        readTimeout: 3000
+        loggerLevel: BASIC
+        # 关闭 Feign 自带重试，由我们的 ErrorDecoder 精细控制
+        retryer: feign.Retryer.Default
+  # 广播服务的可调参数
+  broadcast:
+    connect-timeout-ms: 1000
+    read-timeout-ms: 3000
+    retry-read-timeout-ms: 10000
+    total-timeout-seconds: 30
+
+# ===== Spring Cloud 兼容性检查 =====
+# Spring Boot 2.7.18 与当前 Spring Cloud release train 不兼容，启动会报错。
+# 临时关掉兼容性校验，让服务能起来。生产环境建议对齐 Spring Boot/Spring Cloud 版本。
+spring.cloud.compatibility-verifier:
+  enabled: false
+
+# ===== Spring Cloud OpenFeign 开关 =====
+spring.cloud.openfeign:
+  enabled: true
+  # 启用 Feign 对 Spring MVC 注解的支持
+  mvc.enabled: true
+  # 不使用默认的 Hystrix（项目未引入 Hystrix，避免启动报错）
+  circuitbreaker.enabled: false
+  # OkHttp 客户端（连接池支持）
+  okhttp:
+    enabled: true
+  # HTTP 客户端启用 GZIP 压缩
+  compression:
+    request:
+      enabled: true
+      mime-types: application/json
+      min-request-size: 1024
+    response:
+      enabled: true
+      mime-types: application/json
+      use-encoding: gzip
+  # 客户端负载均衡
+  loadbalancer:
+    enabled: true
+
+# ===== Spring Cloud LoadBalancer =====
+spring.cloud.loadbalancer:
+  enabled: true
+  # 缓存服务列表（避免每次都查 Consul）
+  cache:
+    enabled: true
+    ttl: 5s
+    capacity: 200
+
+consul:
+  host: localhost
+  port: 8500
+  service-name: business-logic-editor
+  watch-timeout: 10
+  watch-interval: 15
+  # OpenFeign 服务发现支持
+  discovery:
+    enabled: true
+    prefer-ip-address: true
+
+logging:
+  level:
+    com.businesslogic: debug
+    org.springframework.web: info

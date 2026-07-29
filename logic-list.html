@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>业务逻辑列表</title>
+    <!-- <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script> -->
+    <script src="./vue.global.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .app-container {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 1200px;
+            margin: 0 auto;
+            border: 1px solid #e0e0e0;
+            padding: 30px;
+        }
+
+        .app-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .app-header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            opacity: 0.9;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .content-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e0e0e0;
+        }
+
+        .content-section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .logic-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .logic-item {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .logic-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .logic-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .logic-item-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #333;
+            flex: 1;
+        }
+
+        .logic-item-meta {
+            display: flex;
+            gap: 20px;
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .meta-icon {
+            font-size: 1.2rem;
+        }
+
+        .logic-item-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+
+        .logic-item-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #f12711 100%);
+            color: white;
+        }
+
+        .btn-warning:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc3545 100%);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            font-size: 1rem;
+        }
+
+        .empty-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        .empty-text {
+            font-size: 1.2rem;
+        margin-bottom: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f6;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 15px 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="app-container">
+            <div class="app-header">
+                <h1>📝 业务逻辑列表</h1>
+                <div class="subtitle">管理已保存的业务逻辑</div>
+            </div>
+
+            <div class="content-section">
+                <h2>📋 已保存的业务逻辑</h2>
+                
+                <div v-if="loading" class="loading">
+                    <div class="spinner"></div>
+                    <div>加载中...</div>
+                </div>
+
+                <div v-else-if="error" class="error-message">
+                    {{ error }}
+                </div>
+
+                <div v-else-if="!loading && logicList.length === 0" class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <div class="empty-text">暂无已保存的业务逻辑</div>
+                    <div>
+                        <button @click="loadLogicList" class="btn btn-primary">🔄 刷新列表</button>
+                    </div>
+                </div>
+
+                <div v-else class="logic-list">
+                    <div v-for="logic in logicList" :key="logic.id" class="logic-item" @click="editLogic(logic.id)">
+                        <div class="logic-item-header">
+                            <div class="logic-item-title">{{ logic.name }}</div>
+                            <div class="logic-item-meta">
+                                <div class="meta-item">
+                                    <span class="meta-icon">📅</span>
+                                    <span>{{ logic.stepCount }} 个步骤</span>
+                                </div>
+                                <div class="meta-item">
+                                    <span class="meta-icon">📝</span>
+                                    <span>{{ formatDate(logic.createdAt) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="logic-item-description">{{ logic.description || '暂无描述' }}</div>
+                        <div class="logic-item-actions">
+                            <button @click.stop="editLogic(logic.id)" class="btn btn-primary">✏️ 编辑</button>
+                            <button @click.stop="deleteLogic(logic.id)" class="btn btn-danger">🗑️ 删除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const apiBaseUrl = 'http://localhost:8080/api';
+
+        const loadLogicList = async function() {
+            this.loading = true;
+            this.error = '';
+            
+            try {
+                const response = await fetch(`${apiBaseUrl}/business-logic`, {
+                    method: 'GET'
+                });
+
+                const result = await response.json();
+
+                if (result.code === 200) {
+                    this.logicList = result.data || [];
+                } else {
+                    this.error = result.message || '加载失败';
+                }
+            } catch (e) {
+                console.error('加载业务逻辑列表失败:', e);
+                this.error = '加载失败: ' + e.message;
+            } finally {
+                this.loading = false;
+            }
+        };
+
+        const editLogic = function(id) {
+            window.location.href = `test-business-logic-editor.html?id=${id}`;
+        };
+
+        const deleteLogic = async function(id) {
+            if (!confirm('确定要删除这个业务逻辑吗？')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${apiBaseUrl}/business-logic/${id}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.code === 200) {
+                    alert('删除成功！');
+                    this.logicList = this.logicList.filter(logic => logic.id !== id);
+                } else {
+                    alert('删除失败: ' + result.message);
+                }
+            } catch (e) {
+                console.error('删除业务逻辑失败:', e);
+                alert('删除失败: ' + e.message);
+            }
+        };
+
+        const formatDate = function(dateString) {
+            if (!dateString) return '';
+            
+            const date = new Date(dateString);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        };
+
+        createApp({
+            data() {
+                return {
+                    logicList: [],
+                    loading: false,
+                    error: ''
+                };
+            },
+            methods: {
+                loadLogicList,
+                editLogic,
+                deleteLogic,
+                formatDate
+            },
+            mounted() {
+                this.loadLogicList();
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
