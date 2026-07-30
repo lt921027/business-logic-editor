@@ -45,9 +45,8 @@
         <!-- Groovy 3.0.9 - 表达式引擎（并行实现） -->
         <dependency>
             <groupId>org.codehaus.groovy</groupId>
-            <artifactId>groovy-all</artifactId>
+            <artifactId>groovy</artifactId>
             <version>${groovy.version}</version>
-            <type>pom</type>
         </dependency>
 
         <!-- JsonPath - JSON路径查询 -->
