@@ -3,6 +3,8 @@ package com.businesslogic.hotload;
 import com.googlecode.aviator.AviatorEvaluatorInstance;
 import com.googlecode.aviator.Expression;
 import com.googlecode.aviator.runtime.function.AbstractFunction;
+import com.googlecode.aviator.runtime.function.AbstractVariadicFunction;
+import com.googlecode.aviator.runtime.type.AviatorFunction;
 import com.googlecode.aviator.runtime.type.AviatorObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +18,7 @@ public class AviatorFunctionRegistry {
 
     private final AviatorEvaluatorInstance evaluator;
     private final Map<String, FunctionDefinition> functionDefinitions;
-    private final Map<String, AbstractFunction> functionInstances;
+    private final Map<String, AviatorFunction> functionInstances;
     private volatile boolean initialized = false;
 
     public AviatorFunctionRegistry(AviatorEvaluatorInstance evaluator) {
@@ -42,7 +44,7 @@ public class AviatorFunctionRegistry {
                 .build();
 
         functionDefinitions.put(name, definition);
-        AbstractFunction instance = new ExpressionFunction(definition);
+        AviatorFunction instance = new ExpressionFunction(definition);
         functionInstances.put(name, instance);
         evaluator.addFunction(instance);
         logger.info("Registered expression function: {}", name);
@@ -57,7 +59,7 @@ public class AviatorFunctionRegistry {
                 .build();
 
         functionDefinitions.put(name, definition);
-        AbstractFunction instance = new ScriptFunction(definition);
+        AviatorFunction instance = new ScriptFunction(definition);
         functionInstances.put(name, instance);
         evaluator.addFunction(instance);
         logger.info("Registered script function: {}", name);
@@ -128,13 +130,13 @@ public class AviatorFunctionRegistry {
         unregisterFunction(name);
 
         functionDefinitions.put(name, newDefinition);
-        AbstractFunction instance = createFunctionInstance(newDefinition);
+        AviatorFunction instance = createFunctionInstance(newDefinition);
         functionInstances.put(name, instance);
         evaluator.addFunction(instance);
         logger.info("Updated function: {} with type: {}", name, newDefinition.getType());
     }
 
-    private AbstractFunction createFunctionInstance(FunctionDefinition definition) {
+    private AviatorFunction createFunctionInstance(FunctionDefinition definition) {
         switch (definition.getType()) {
             case EXPRESSION:
                 return new ExpressionFunction(definition);
@@ -148,7 +150,7 @@ public class AviatorFunctionRegistry {
     }
 
     public void unregisterFunction(String name) {
-        AbstractFunction removed = functionInstances.remove(name);
+        AviatorFunction removed = functionInstances.remove(name);
         if (removed != null) {
             logger.info("Unregistered function: {}", name);
         }
@@ -159,7 +161,7 @@ public class AviatorFunctionRegistry {
         return functionDefinitions.get(name);
     }
 
-    public AbstractFunction getFunctionInstance(String name) {
+    public AviatorFunction getFunctionInstance(String name) {
         return functionInstances.get(name);
     }
 
@@ -171,7 +173,7 @@ public class AviatorFunctionRegistry {
         return new java.util.HashSet<>(functionDefinitions.keySet());
     }
 
-    private static class ExpressionFunction extends AbstractFunction {
+    private static class ExpressionFunction extends AbstractVariadicFunction {
         private final FunctionDefinition definition;
         private volatile Expression compiledExpression;
 
@@ -179,7 +181,8 @@ public class AviatorFunctionRegistry {
             this.definition = definition;
         }
 
-        public AviatorObject call(Map<String, Object> env, AviatorObject... args) {
+        @Override
+        public AviatorObject variadicCall(Map<String, Object> env, AviatorObject... args) {
             try {
                 Expression expr = getCompiledExpression();
                 Map<String, Object> funcEnv = new java.util.HashMap<>(env);
@@ -215,7 +218,7 @@ public class AviatorFunctionRegistry {
         }
     }
 
-    private static class ScriptFunction extends AbstractFunction {
+    private static class ScriptFunction extends AbstractVariadicFunction {
         private final FunctionDefinition definition;
         private volatile Expression compiledScript;
 
@@ -223,7 +226,8 @@ public class AviatorFunctionRegistry {
             this.definition = definition;
         }
 
-        public AviatorObject call(Map<String, Object> env, AviatorObject... args) {
+        @Override
+        public AviatorObject variadicCall(Map<String, Object> env, AviatorObject... args) {
             try {
                 Expression expr = getCompiledScript();
                 Map<String, Object> funcEnv = new java.util.HashMap<>(env);
@@ -246,22 +250,14 @@ public class AviatorFunctionRegistry {
             if (compiledScript == null) {
                 synchronized (this) {
                     if (compiledScript == null) {
-                        String fullScript = buildFullScript();
-                        compiledScript = com.googlecode.aviator.AviatorEvaluator.compile(fullScript);
+                        // 参数已在 call() 中写入执行环境（env），脚本内直接按参数名引用即可。
+                        // 不要在这里拼 "let p1, p2;" 之类的声明：Aviator 5.x 语法不支持
+                        // 无初始化值的 let 声明（多参数会直接编译报错），且会以 nil 遮蔽 env 中的实参。
+                        compiledScript = com.googlecode.aviator.AviatorEvaluator.compile(definition.getScript());
                     }
                 }
             }
             return compiledScript;
-        }
-
-        private String buildFullScript() {
-            StringBuilder sb = new StringBuilder();
-            String[] params = definition.getParams();
-            if (params != null && params.length > 0) {
-                sb.append("let ").append(String.join(", ", params)).append(";\n");
-            }
-            sb.append(definition.getScript());
-            return sb.toString();
         }
 
         @Override

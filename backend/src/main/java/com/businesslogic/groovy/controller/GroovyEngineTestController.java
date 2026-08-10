@@ -4,6 +4,7 @@ import com.businesslogic.common.Result;
 import com.businesslogic.groovy.engine.CompiledGroovyScript;
 import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.groovy.engine.GroovyExpressionEngine;
+import com.businesslogic.groovy.security.LoopBudgetExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -150,11 +151,21 @@ public class GroovyEngineTestController {
      * {@link com.businesslogic.groovy.security.GroovySandbox} 的 RECEIVERS_BLACKLIST
      * （包含 Runtime.class）拦截。
      *
+     * <p>结果分类（不再把"任何异常"都当成"被沙箱拦截"）：
+     * <ul>
+     *   <li>blocked=true, category=SANDBOX_BLOCKED：编译期被沙箱策略拒绝（SecurityException）</li>
+     *   <li>blocked=false, category=COMPILE_ERROR：语法/语义编译错误</li>
+     *   <li>blocked=false, category=RUNTIME_ERROR：业务运行时异常</li>
+     *   <li>blocked=false, category=LOOP_LIMIT：循环/闭包执行次数超过预算</li>
+     *   <li>blocked=false, category=TIMEOUT：执行超时</li>
+     *   <li>blocked=false, category=EXECUTED：执行成功</li>
+     * </ul>
+     *
      * <p>关联：通过 {@link GroovyExecutor#execute(String, String, Map)} 直接触发编译+执行，
-     * 沙箱在编译阶段就会拒绝。
+     * 沙箱在编译阶段就会拒绝；while(true) 之类脚本由循环预算/超时兜底，接口不会挂死。
      *
      * @param body 可选，自定义测试脚本
-     * @return blocked=true 表示沙箱成功拦截（符合预期）
+     * @return 带分类的结果
      */
     @PostMapping("/sandbox-test")
     public Result<Map<String, Object>> sandboxTest(@RequestBody(required = false) Map<String, Object> body) {
@@ -169,12 +180,47 @@ public class GroovyEngineTestController {
             Object result = GroovyExecutor.execute(script, null, null);
             resp.put("result", result);
             resp.put("blocked", false);
-            return Result.success("脚本执行成功（沙箱未拦截）", resp);
+            resp.put("category", "EXECUTED");
+            return Result.success("脚本执行成功", resp);
         } catch (Exception e) {
+            Throwable root = e;
+            while (root.getCause() != null && root.getCause() != root) {
+                root = root.getCause();
+            }
+
             resp.put("error", e.getMessage());
             resp.put("errorType", e.getClass().getSimpleName());
-            resp.put("blocked", true);
-            return Result.success("脚本被沙箱拦截（符合预期）", resp);
+            resp.put("rootCauseType", root.getClass().getSimpleName());
+
+            // 只有编译期被沙箱策略拒绝才算"被拦截"。
+            // SecurityException 通常嵌在 MultipleCompilationErrorsException 的错误消息里
+            // 而非 cause 链上，因此除根因判断外还需扫描编译错误消息中的沙箱标识。
+            String fullMessage = String.valueOf(e.getMessage());
+            boolean sandboxBlocked = root instanceof SecurityException
+                    || (e instanceof GroovyExpressionEngine.GroovyCompileException
+                    && (fullMessage.contains("SecurityException")
+                    || fullMessage.contains("is not allowed")
+                    || fullMessage.contains("Indirect import")));
+            if (sandboxBlocked) {
+                resp.put("blocked", true);
+                resp.put("category", "SANDBOX_BLOCKED");
+                return Result.success("脚本被沙箱拦截（符合预期）", resp);
+            }
+
+            resp.put("blocked", false);
+            if (e instanceof GroovyExpressionEngine.GroovyExecuteException) {
+                String msg = String.valueOf(e.getMessage());
+                if (msg.contains("执行超时")) {
+                    resp.put("category", "TIMEOUT");
+                } else if (root instanceof LoopBudgetExceededException) {
+                    resp.put("category", "LOOP_LIMIT");
+                } else {
+                    resp.put("category", "RUNTIME_ERROR");
+                }
+            } else {
+                resp.put("category", "COMPILE_ERROR");
+            }
+            return Result.success("脚本未通过（blocked=false，详见 category）", resp);
         }
     }
 }

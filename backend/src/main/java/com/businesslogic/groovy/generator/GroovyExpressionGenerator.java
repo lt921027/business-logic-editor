@@ -74,6 +74,12 @@ public class GroovyExpressionGenerator {
         for (int i = 0; i < steps.size(); i++) {
             LogicStepDTO step = steps.get(i);
             String stepExpression = generateStepExpression(step, i + 1);
+
+            // 空步骤或未知 category 不生成任何变量：跳过，避免末尾 return 引用未定义的 stepN
+            if (stepExpression == null || stepExpression.trim().isEmpty()) {
+                continue;
+            }
+
             expression.append(stepExpression).append("\n");
 
             // 记录最后一个步骤的输出变量名（用于末尾 return）
@@ -182,7 +188,14 @@ public class GroovyExpressionGenerator {
         List<OperandDTO> operands = calcStep.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数时返回该分类的中性兜底值，避免生成 `def x = ` 这类非法脚本
+            String category = getFirstElement(calcStep.getFunctionCategory());
+            if ("string".equals(category)) {
+                return "''";
+            } else if ("date".equals(category)) {
+                return "null";
+            }
+            return "0";
         }
 
         String category = getFirstElement(calcStep.getFunctionCategory());
@@ -218,33 +231,39 @@ public class GroovyExpressionGenerator {
      */
     private String generateStringFunction(String function, List<OperandDTO> operands,
                                            String filterScope, String loopVar) {
-        String operandStr = operands.stream()
+        List<String> operandExprs = operands.stream()
                 .map(operand -> filterScope != null && !filterScope.isEmpty()
                         ? generateOperandExpressionInLoop(operand, "string", filterScope, loopVar)
                         : generateOperandExpression(operand, "string"))
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.toList());
 
         if ("includes".equals(function)) {
-            // string.contains(a, b) → a.contains(b)
-            String[] parts = operandStr.split(", ", 2);
-            if (parts.length == 2) {
-                return parts[0] + ".contains(" + parts[1] + ")";
+            // string.contains(a, b) → a.contains(b)；不足 2 个操作数时生成 false，避免非法 .contains()
+            if (operandExprs.size() < 2) {
+                return "false";
             }
-            return parts[0] + ".contains()";
+            return operandExprs.get(0) + ".contains(" + operandExprs.get(1) + ")";
         } else if ("concat".equals(function)) {
-            // seq.concat(a, b) → a + b
-            String[] parts = operandStr.split(", ", 2);
-            if (parts.length == 2) {
-                return "(" + parts[0] + " + " + parts[1] + ")";
+            // seq.concat(a, b) → (a + b)；支持任意多个操作数
+            if (operandExprs.isEmpty()) {
+                return "''";
             }
-            return operandStr;
+            if (operandExprs.size() == 1) {
+                return operandExprs.get(0);
+            }
+            return "(" + String.join(" + ", operandExprs) + ")";
         } else if ("equals".equals(function)) {
             // StringUtil.equals(a, b) → same (Java static call)
-            return "StringUtil.equals(" + operandStr + ")";
+            if (operandExprs.size() < 2) {
+                return "false";
+            }
+            return "StringUtil.equals(" + String.join(", ", operandExprs) + ")";
         } else if ("length".equals(function)) {
-            // string.length(s) → s.length()
-            String[] parts = operandStr.split(", ", 2);
-            return parts[0] + ".length()";
+            // string.length(s) → s.length()；无操作数时生成 0，避免数组越界/非法调用
+            if (operandExprs.isEmpty()) {
+                return "0";
+            }
+            return operandExprs.get(0) + ".length()";
         } else {
             return "";
         }
@@ -272,27 +291,45 @@ public class GroovyExpressionGenerator {
             return generateArithmeticExpression(operands, filterScope, loopVar);
         }
 
-        String operandStr = operands.stream()
+        List<String> operandExprs = operands.stream()
                 .map(operand -> filterScope != null && !filterScope.isEmpty()
                         ? generateOperandExpressionInLoop(operand, "number", filterScope, loopVar)
                         : generateOperandExpression(operand, "number"))
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.toList());
 
         if ("max".equals(function)) {
-            // max(a, b) → Math.max(a, b)
-            return "Math.max(" + operandStr + ")";
+            // max(a, b, c) → Math.max(Math.max(a, b), c)；支持任意多个操作数
+            return buildNaryMath("Math.max", operandExprs);
         } else if ("min".equals(function)) {
-            // min(a, b) → Math.min(a, b)
-            return "Math.min(" + operandStr + ")";
+            return buildNaryMath("Math.min", operandExprs);
         } else if ("sum".equals(function)) {
             // reduce(list(a, b, c), 0, lambda(x, y) -> x + y end) → [a, b, c].inject(0) { x, y -> x + y }
-            return "[" + operandStr + "].inject(0) { x, y -> x + y }";
+            return "[" + String.join(", ", operandExprs) + "].inject(0) { x, y -> x + y }";
         } else if ("avg".equals(function)) {
             // reduce(...) / count(...) → [...].inject(0) { x, y -> x + y } / [...].size()
-            return "[" + operandStr + "].inject(0) { x, y -> x + y } / [" + operandStr + "].size()";
+            return "[" + String.join(", ", operandExprs) + "].inject(0) { x, y -> x + y } / ["
+                    + String.join(", ", operandExprs) + "].size()";
         } else {
             return "";
         }
+    }
+
+    /**
+     * 生成 n 元 Math.max/min 表达式：Math.max(Math.max(a, b), c)。
+     *
+     * <p>为何需要：Java Math.max/min 只接受两个参数，操作数超过 2 个时
+     * 直接写 Math.max(a, b, c) 会在运行时抛 MissingMethodException。
+     * 1 个操作数时直接返回该操作数；0 个时返回 0（调用方通常已前置拦截空操作数）。
+     */
+    private String buildNaryMath(String method, List<String> operandExprs) {
+        if (operandExprs == null || operandExprs.isEmpty()) {
+            return "0";
+        }
+        String expr = operandExprs.get(0);
+        for (int i = 1; i < operandExprs.size(); i++) {
+            expr = method + "(" + expr + ", " + operandExprs.get(i) + ")";
+        }
+        return expr;
     }
 
     /**
@@ -459,11 +496,13 @@ public class GroovyExpressionGenerator {
 
         String listVarName;
         if (useTempList) {
-            listVarName = varName + (reverseCondition ? "false" : "true");
+            // 临时筛选结果列表：使用保留前缀内部变量名，避免与用户 outputVar 冲突
+            listVarName = "__filter_step" + stepNum + (reverseCondition ? "_unmatched" : "_matched");
             // let var = seq.list(); → def var = []
             sb.append("def ").append(listVarName).append(" = []\n");
         } else {
-            listVarName = "step" + stepNum;
+            // 无聚合逻辑时，筛选结果直接赋给步骤输出变量（outputVar 或默认 stepN）
+            listVarName = varName;
             sb.append("def ").append(listVarName).append(" = []\n");
         }
 
@@ -481,11 +520,9 @@ public class GroovyExpressionGenerator {
 
         if (logicList != null && !logicList.isEmpty()) {
             String initValue = getStepInitValue(logicList);
-            String stepVarName = "step" + stepNum;
-            // let step = 0; → def step = 0
-            // let step = seq.list(); → def step = []
-            sb.append("def ").append(stepVarName).append(" = ").append(initValue).append("\n");
-            sb.append(generateFilterLogicWithListResults(logicList, listVarName, stepVarName));
+            // 聚合结果赋给步骤输出变量（outputVar 或默认 stepN）
+            sb.append("def ").append(varName).append(" = ").append(initValue).append("\n");
+            sb.append(generateFilterLogicWithListResults(stepNum, logicList, listVarName, varName));
         }
 
         return sb.toString();
@@ -498,7 +535,7 @@ public class GroovyExpressionGenerator {
      * - 操作2: 输入 = 结果1 输出 = 结果2
      * - 操作N: 输入 = 结果(N-1) 输出 = 赋值给步骤变量
      */
-    private String generateFilterLogicWithListResults(List<FilterLogicDTO> logicList,
+    private String generateFilterLogicWithListResults(int stepNum, List<FilterLogicDTO> logicList,
                                                        String listVar, String stepVarName) {
         StringBuilder sb = new StringBuilder();
 
@@ -512,6 +549,15 @@ public class GroovyExpressionGenerator {
         for (int i = 0; i < logicList.size(); i++) {
             FilterLogicDTO logic = logicList.get(i);
 
+            // 链式聚合中，count/sum 返回数值，只能作为最后一个操作；
+            // 若放在中间，下一步会把这个数值当作列表处理，生成运行时报错的表达式
+            if (i < logicList.size() - 1
+                    && ("count".equals(logic.getType()) || "sum".equals(logic.getType()))) {
+                throw new IllegalArgumentException(
+                        "筛选聚合链中 count/sum 必须是最后一个操作（第 " + (i + 1)
+                                + " 个操作类型: " + logic.getType() + "）");
+            }
+
             String resultExpr = generateFilterLogicExecutionWithList(logic, currentInput);
 
             if (i == logicList.size() - 1) {
@@ -519,7 +565,7 @@ public class GroovyExpressionGenerator {
                 sb.append(stepVarName).append(" = ").append(resultExpr).append("\n");
             } else {
                 // 中间操作：结果保存到临时变量
-                String tempVar = "temp_" + stepVarName + "_" + i;
+                String tempVar = "__filter_step" + stepNum + "_temp_" + i;
                 // let temp = result; → def temp = result
                 sb.append("def ").append(tempVar).append(" = ").append(resultExpr).append("\n");
                 currentInput = tempVar;
@@ -757,8 +803,23 @@ public class GroovyExpressionGenerator {
             return value;
         }
 
-        // 字符串、日期分类或默认情况：加单引号
-        return "'" + value + "'";
+        // 字符串、日期分类或默认情况：加单引号，并转义单引号/反斜杠/控制字符，
+        // 防止值里带引号或反斜杠时生成非法脚本（甚至注入代码）
+        return "'" + escapeStringLiteral(value) + "'";
+    }
+
+    /**
+     * 转义单引号字符串字面量：反斜杠、单引号、回车、换行、制表符。
+     *
+     * <p>关联：被 {@link #formatValue} 调用，用于 string/date 字面量。
+     */
+    private String escapeStringLiteral(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
     }
 
     // ==================== 筛选条件 ====================
@@ -836,7 +897,8 @@ public class GroovyExpressionGenerator {
         List<OperandDTO> operands = item.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数：返回 false 作为中性条件，避免外层拼出 (()) 这类非法表达式
+            return "false";
         }
 
         String category = getFirstElement(item.getFunctionCategory());
@@ -864,7 +926,8 @@ public class GroovyExpressionGenerator {
         List<OperandDTO> operands = item.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数：返回 false 作为中性条件，避免外层拼出 (()) 这类非法表达式
+            return "false";
         }
 
         String category = getFirstElement(item.getFunctionCategory());

@@ -19,6 +19,38 @@ public class AviatorExecutor {
 
     private static final Logger logger = LoggerFactory.getLogger(AviatorExecutor.class);
 
+    /** Aviator 序列 for 循环/迭代的最大次数（防止 range(1, 21亿) 这类脚本烧 CPU） */
+    public static final long MAX_LOOP_COUNT = 100000;
+
+    static {
+        applySecurityOptions();
+    }
+
+    /**
+     * 应用 Aviator 安全选项（幂等，可重复调用）：
+     * <ul>
+     *   <li>{@code MAX_LOOP_COUNT}：限制 for 序列循环次数，超限抛 Overflow max loop count</li>
+     *   <li>禁用 {@code Feature.WhileLoop}：while 循环不受 MAX_LOOP_COUNT 约束，
+     *       while(true){} 可直接挂死线程，编译期直接禁止</li>
+     * </ul>
+     *
+     * <p>为何静态块 + 启动配置双保险：静态块保证任何经由本类的编译/执行前生效；
+     * {@link com.businesslogic.config.AviatorSecurityConfig} 在 Spring 启动时再次调用，
+     * 覆盖缓存预热等可能提前使用 Aviator 的路径。
+     */
+    public static void applySecurityOptions() {
+        com.googlecode.aviator.AviatorEvaluatorInstance evaluator =
+                com.googlecode.aviator.AviatorEvaluator.getInstance();
+        evaluator.setOption(com.googlecode.aviator.Options.MAX_LOOP_COUNT, MAX_LOOP_COUNT);
+
+        java.util.EnumSet<com.googlecode.aviator.Feature> features =
+                java.util.EnumSet.allOf(com.googlecode.aviator.Feature.class);
+        features.remove(com.googlecode.aviator.Feature.WhileLoop);
+        evaluator.setOption(com.googlecode.aviator.Options.FEATURE_SET, features);
+
+        logger.info("Aviator 安全选项已应用: MAX_LOOP_COUNT={}, WhileLoop=disabled", MAX_LOOP_COUNT);
+    }
+
     /**
      * 执行 Aviator 表达     * 
      * @param expressionCode Aviator 表达式代     * @param inputData 输入数据（通常JSON 字符串）

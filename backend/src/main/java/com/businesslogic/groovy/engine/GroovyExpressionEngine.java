@@ -1,6 +1,8 @@
 package com.businesslogic.groovy.engine;
 
 import com.businesslogic.groovy.security.GroovySandbox;
+import com.businesslogic.groovy.security.LoopBudget;
+import com.businesslogic.groovy.security.LoopBudgetCustomizer;
 import com.businesslogic.util.JsonPathUtil;
 import com.businesslogic.util.StringUtil;
 import com.businesslogic.groovy.util.GroovyDateFunctions;
@@ -14,6 +16,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Groovy 表达式引擎
@@ -79,6 +88,18 @@ public class GroovyExpressionEngine {
      */
     private final ConcurrentHashMap<String, Class<?>> registeredStaticClasses = new ConcurrentHashMap<>();
 
+    /** 单脚本最大循环/闭包调用次数（运行时预算，见 {@link LoopBudget}） */
+    private volatile int loopBudgetLimit = 200000;
+
+    /** 单脚本最大执行时长（毫秒），超时后中断 worker 并返回超时错误 */
+    private volatile long executionTimeoutMillis = 3000;
+
+    /** 单脚本源码最大长度（字符数），防止超大脚本拖垮编译与执行 */
+    private volatile int maxScriptLength = 65536;
+
+    /** 脚本执行专用 worker 线程池（有界守护线程，避免脚本挂死占用请求线程） */
+    private final ExecutorService scriptExecutor;
+
     /**
      * 构造引擎：初始化沙箱 + 类加载器。
      *
@@ -90,6 +111,11 @@ public class GroovyExpressionEngine {
         this.classLoader = new GroovyClassLoader(
                 getClass().getClassLoader(),
                 sandbox.getCompilerConfiguration());
+        this.scriptExecutor = Executors.newFixedThreadPool(8, runnable -> {
+            Thread thread = new Thread(runnable, "groovy-script-worker");
+            thread.setDaemon(true);
+            return thread;
+        });
         logger.info("[GroovyEngine] 表达式引擎初始化完成");
     }
 
@@ -109,6 +135,10 @@ public class GroovyExpressionEngine {
      * @return 编译后的包装对象（包含 Script Class、源码、源码 hash）
      */
     public CompiledGroovyScript compile(String scriptSource) {
+        if (scriptSource != null && scriptSource.length() > maxScriptLength) {
+            throw new GroovyCompileException(
+                    "Groovy 脚本长度超限（" + scriptSource.length() + " > " + maxScriptLength + "）", null);
+        }
         String hash = md5(scriptSource);
 
         Class<? extends Script> clazz = compileCache.computeIfAbsent(hash, h -> {
@@ -168,12 +198,60 @@ public class GroovyExpressionEngine {
                 }
             }
 
+            // 注入循环/闭包预算守卫（每次执行新实例，随本次执行生命周期，见 LoopBudgetCustomizer）
+            binding.setVariable(LoopBudgetCustomizer.GUARD_VAR, new LoopBudget(loopBudgetLimit));
+
             script.setBinding(binding);
-            return script.run();
+            Future<Object> future = scriptExecutor.submit(
+                    (java.util.concurrent.Callable<Object>) script::run);
+            try {
+                return future.get(executionTimeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                logger.warn("[GroovyEngine] 脚本执行超时（{}ms）, hash={}", executionTimeoutMillis,
+                        compiled.getSourceHash());
+                throw new GroovyExecuteException(
+                        "Groovy 脚本执行超时（" + executionTimeoutMillis + "ms）", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                throw new GroovyExecuteException("Groovy 脚本执行失败: " + cause.getMessage(), cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new GroovyExecuteException("Groovy 脚本执行被中断", e);
+            } catch (RejectedExecutionException e) {
+                throw new GroovyExecuteException("Groovy 脚本执行并发过高，已拒绝", e);
+            }
         } catch (Exception e) {
+            if (e instanceof GroovyExecuteException) {
+                throw (GroovyExecuteException) e;
+            }
             logger.error("[GroovyEngine] 执行失败, hash={}, error={}", compiled.getSourceHash(), e.getMessage());
             throw new GroovyExecuteException("Groovy 脚本执行失败: " + e.getMessage(), e);
         }
+    }
+
+    public int getLoopBudgetLimit() {
+        return loopBudgetLimit;
+    }
+
+    public void setLoopBudgetLimit(int loopBudgetLimit) {
+        this.loopBudgetLimit = Math.max(1, loopBudgetLimit);
+    }
+
+    public long getExecutionTimeoutMillis() {
+        return executionTimeoutMillis;
+    }
+
+    public void setExecutionTimeoutMillis(long executionTimeoutMillis) {
+        this.executionTimeoutMillis = Math.max(1, executionTimeoutMillis);
+    }
+
+    public int getMaxScriptLength() {
+        return maxScriptLength;
+    }
+
+    public void setMaxScriptLength(int maxScriptLength) {
+        this.maxScriptLength = Math.max(1, maxScriptLength);
     }
 
     /**

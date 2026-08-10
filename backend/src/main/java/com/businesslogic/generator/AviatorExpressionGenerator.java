@@ -82,7 +82,14 @@ public class AviatorExpressionGenerator {
         List<OperandDTO> operands = calcStep.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数时返回该分类的中性兜底值，避免生成 `let x = ` 这类非法脚本
+            String category = getFirstElement(calcStep.getFunctionCategory());
+            if ("string".equals(category)) {
+                return "''";
+            } else if ("date".equals(category)) {
+                return "nil";
+            }
+            return "0";
         }
 
         String category = getFirstElement(calcStep.getFunctionCategory());
@@ -100,20 +107,33 @@ public class AviatorExpressionGenerator {
 
 
     private String generateStringFunction(String function, List<OperandDTO> operands, String filterScope, String loopVar) {
-        String operandStr = operands.stream()
+        List<String> operandExprs = operands.stream()
                 .map(operand -> filterScope != null && !filterScope.isEmpty() 
                     ? generateOperandExpressionInLoop(operand, "string", filterScope, loopVar)
                     : generateOperandExpression(operand, "string"))
-                .collect(Collectors.joining(", "));
+                .collect(Collectors.toList());
 
         if ("includes".equals(function)) {
-            return "string.contains(" + operandStr + ")";
+            // string.contains(a, b)；不足 2 个操作数时生成 false，避免运行时参数个数错误
+            if (operandExprs.size() < 2) {
+                return "false";
+            }
+            return "string.contains(" + String.join(", ", operandExprs) + ")";
         } else if ("concat".equals(function)) {
-            return "seq.concat(" + operandStr + ")";
+            // Aviator 5.x 没有 seq.concat/string.concat（裸 concat 是序列构造器），
+            // 用 string.join(seq.list(...), '') 拼接任意多个字符串
+            return "string.join(seq.list(" + String.join(", ", operandExprs) + "), '')";
         } else if ("equals".equals(function)) {
-            return "StringUtil.equals(" + operandStr + ")";
+            if (operandExprs.size() < 2) {
+                return "false";
+            }
+            return "StringUtil.equals(" + String.join(", ", operandExprs) + ")";
         } else if ("length".equals(function)) {
-            return "string.length(" + operandStr + ")";
+            // string.length(s)；无操作数时生成 0
+            if (operandExprs.isEmpty()) {
+                return "0";
+            }
+            return "string.length(" + String.join(", ", operandExprs) + ")";
         } else {
             return "";
         }
@@ -249,10 +269,12 @@ public class AviatorExpressionGenerator {
 
         String listVarName;
         if (useTempList) {
-            listVarName = varName + (reverseCondition ? "false" : "true");
+            // 临时筛选结果列表：使用保留前缀内部变量名，避免与用户 outputVar 冲突
+            listVarName = "__filter_step" + stepNum + (reverseCondition ? "_unmatched" : "_matched");
             sb.append("let ").append(listVarName).append(" = seq.list();\n");
         } else {
-            listVarName = "step" + stepNum;
+            // 无聚合逻辑时，筛选结果直接赋给步骤输出变量（outputVar 或默认 stepN）
+            listVarName = varName;
             sb.append("let ").append(listVarName).append(" = seq.list();\n");
         }
 
@@ -268,9 +290,9 @@ public class AviatorExpressionGenerator {
 
         if (logicList != null && !logicList.isEmpty()) {
             String initValue = getStepInitValue(logicList);
-            String stepVarName = "step" + stepNum;
-            sb.append("let ").append(stepVarName).append(" = ").append(initValue).append(";\n");
-            sb.append(generateFilterLogicWithListResults(logicList, listVarName, stepVarName));
+            // 聚合结果赋给步骤输出变量（outputVar 或默认 stepN）
+            sb.append("let ").append(varName).append(" = ").append(initValue).append(";\n");
+            sb.append(generateFilterLogicWithListResults(stepNum, logicList, listVarName, varName));
         }
 
         return sb.toString();
@@ -283,7 +305,8 @@ public class AviatorExpressionGenerator {
      * - 操作2: 输入 = 结果1 输出 = 结果2  
      * - 操作N: 输入 = 结果(N-1) 输出 = 赋值给步骤变量
      */
-    private String generateFilterLogicWithListResults(List<FilterLogicDTO> logicList, String listVar, String stepVarName) {
+    private String generateFilterLogicWithListResults(int stepNum, List<FilterLogicDTO> logicList,
+                                                       String listVar, String stepVarName) {
         StringBuilder sb = new StringBuilder();
         
         if (logicList == null || logicList.isEmpty()) {
@@ -296,6 +319,15 @@ public class AviatorExpressionGenerator {
 
         for (int i = 0; i < logicList.size(); i++) {
             FilterLogicDTO logic = logicList.get(i);
+
+            // 链式聚合中，count/sum 返回数值，只能作为最后一个操作；
+            // 若放在中间，下一步会把这个数值当作列表处理，生成运行时报错的表达式
+            if (i < logicList.size() - 1
+                    && ("count".equals(logic.getType()) || "sum".equals(logic.getType()))) {
+                throw new IllegalArgumentException(
+                        "筛选聚合链中 count/sum 必须是最后一个操作（第 " + (i + 1)
+                                + " 个操作类型: " + logic.getType() + "）");
+            }
             
             // 生成当前操作的表达式（使用当前输入变量）
             String resultExpr = generateFilterLogicExecutionWithList(logic, currentInput);
@@ -305,9 +337,9 @@ public class AviatorExpressionGenerator {
                 sb.append(stepVarName).append(" = ").append(resultExpr).append(";\n");
             } else {
                 // 中间操作：结果保存到临时变量，作为下一步的输入
-                String tempVar = "temp_" + stepVarName + "_" + i;
+                String tempVar = "__filter_step" + stepNum + "_temp_" + i;
                 sb.append("let ").append(tempVar).append(" = ").append(resultExpr).append(";\n");
-                //更新当前输入为临时变
+                // 更新当前输入为临时变量
                 currentInput = tempVar;
             }
         }
@@ -442,7 +474,8 @@ public class AviatorExpressionGenerator {
         List<OperandDTO> operands = item.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数：返回 false 作为中性条件，避免外层拼出 (()) 这类非法表达式
+            return "false";
         }
 
         String category = getFirstElement(item.getFunctionCategory());
@@ -467,7 +500,8 @@ public class AviatorExpressionGenerator {
         List<OperandDTO> operands = item.getOperands();
 
         if (operands == null || operands.isEmpty()) {
-            return "";
+            // 无操作数：返回 false 作为中性条件，避免外层拼出 (()) 这类非法表达式
+            return "false";
         }
 
         String category = getFirstElement(item.getFunctionCategory());
@@ -539,14 +573,17 @@ public class AviatorExpressionGenerator {
             if ("all".equals(value)) {
                 return "count(" + listVar + ")";
             } else {
-                //lambda 中使x['field'] 访问元素属
-                return "count(" + listVar + ", lambda(x) -> x['" + fieldName + "'] != nil end)";
+                // Aviator 5.x 的 count 只支持单参数，带条件计数需先 filter 再 count
+                return "count(filter(" + listVar + ", lambda(x) -> x['" + fieldName + "'] != nil end))";
             }
         } else if ("sum".equals(type)) {
-            //reduce lambda 中使y['field'] 访问当前元素属
-            return "reduce(" + listVar + ", 0, lambda(x, y) -> x + y['" + fieldName + "'] end)";
+            // Aviator 5.x 的 reduce 签名是 reduce(seq, lambda, init)；
+            // 且 reduce 的 lambda 内对元素做 x['field'] 取属性不可靠，先 map 成值再求和
+            return "reduce(filter(map(" + listVar + ", lambda(x) -> x['" + fieldName + "'] end),"
+                    + " lambda(x) -> x != nil end), lambda(x, y) -> x + y end, 0)";
         } else if ("distinct".equals(type)) {
-            return "distinct(seq.map(" + listVar + ", lambda(x) -> x['" + fieldName + "'] end))";
+            // Aviator 5.x 中 seq.map 返回的是 Map（seq -> lambda），映射列表应使用 map
+            return "distinct(map(" + listVar + ", lambda(x) -> x['" + fieldName + "'] end))";
         } else {
             return "";
         }
@@ -682,8 +719,23 @@ public class AviatorExpressionGenerator {
             return value;
         }
 
-        //字符串、日期分类或默认情况：加单引
-        return "'" + value + "'";
+        // 字符串、日期分类或默认情况：加单引号，并转义单引号/反斜杠/控制字符，
+        // 防止值里带引号或反斜杠时生成非法脚本（甚至注入代码）
+        return "'" + escapeStringLiteral(value) + "'";
+    }
+
+    /**
+     * 转义单引号字符串字面量：反斜杠、单引号、回车、换行、制表符。
+     *
+     * <p>关联：被 {@link #formatValue} 调用，用于 string/date 字面量。
+     */
+    private String escapeStringLiteral(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
     }
 
     private String getFirstElement(String[] array) {

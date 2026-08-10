@@ -18,7 +18,7 @@ import java.util.Arrays;
  *   <li>由 {@link GroovyFunctionRegistry} 的注册方法（register*）创建并保存到 functionDefinitions Map</li>
  *   <li>被 {@link GroovyFunctionRegistry#applyRegistration} 读取 type 字段以分支选择 Closure 包装类</li>
  *   <li>EXPRESSION 类型：{@link #expression} 字段被 {@link GroovyFunctionRegistry#compileExpression} 编译</li>
- *   <li>SCRIPT 类型：{@link #script} + {@link #params} 经 {@link GroovyFunctionRegistry#buildFullScript} 拼接后编译</li>
+ *   <li>SCRIPT 类型：{@link #script} 被直接编译，参数经 {@link #params} 在调用时注入 Binding</li>
  *   <li>JAVA 类型：{@link #javaFunction} 字段被 {@link GroovyFunctionRegistry.JavaFunctionClosure} 直接包装</li>
  *   <li>{@link #version} 字段用于热更新时检测变更（参考 Aviator 版本的版本号设计）</li>
  * </ul>
@@ -49,8 +49,8 @@ public class GroovyFunctionDefinition {
     /**
      * 脚本内容（type=SCRIPT 时使用）
      *
-     * <p>多行 Groovy 脚本，注册前会通过 {@link GroovyFunctionRegistry#buildFullScript} 在顶部
-     * 追加 `def param1; def param2;` 形式的参数声明，再编译为 {@link com.businesslogic.groovy.engine.CompiledGroovyScript}。
+     * <p>多行 Groovy 脚本，直接编译为 {@link com.businesslogic.groovy.engine.CompiledGroovyScript}；
+     * 脚本内按 {@link #params} 中的参数名直接引用，实参在调用时注入 Binding。
      */
     private String script;
 

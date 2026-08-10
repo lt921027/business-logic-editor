@@ -1,7 +1,14 @@
 package com.businesslogic.groovy.security;
 
 import com.businesslogic.groovy.engine.GroovyExpressionEngine;
+import org.codehaus.groovy.ast.expr.VariableExpression;
+import org.codehaus.groovy.ast.expr.Expression;
+import org.codehaus.groovy.ast.expr.ClosureListExpression;
+import org.codehaus.groovy.ast.expr.EmptyExpression;
+import org.codehaus.groovy.ast.stmt.DoWhileStatement;
+import org.codehaus.groovy.ast.stmt.ForStatement;
 import org.codehaus.groovy.ast.stmt.Statement;
+import org.codehaus.groovy.ast.stmt.WhileStatement;
 import org.codehaus.groovy.control.CompilerConfiguration;
 import org.codehaus.groovy.control.customizers.SecureASTCustomizer;
 import org.codehaus.groovy.control.customizers.ImportCustomizer;
@@ -41,6 +48,26 @@ public class GroovySandbox {
      * （ImportCustomizer 负责自动预导入，白名单负责允许业务脚本主动 import）。
      */
     private static final List<String> IMPORTS_WHITELIST = Collections.unmodifiableList(Arrays.asList(
+            // java.lang.Object：脚本中 `def x = ...` 的变量静态类型是 Object，
+            // 动态接收者上的方法调用（如 list << item、map['k']、list.size()）会被
+            // 间接导入检查按接收者类型校验，必须在白名单内才能放行。
+            // 安全补偿见 FORBIDDEN_EXPRESSION_PATTERNS（黑名单全限定名扫描）。
+            "java.lang.Object",
+            // java.lang.String：生成器会对字符串调用 .length()/.contains()/.toUpperCase() 等方法，
+            // 间接导入检查按接收者类型校验，必须在白名单内才能放行；String 本身无危险方法。
+            "java.lang.String",
+            // java.lang.Math：生成器通过静态星号导入生成 Math.max/Math.min，
+            // 间接导入检查按接收者类型校验；Math 只有纯函数，无 IO/反射等危险能力。
+            "java.lang.Math",
+            // 数值包装类型：脚本对整数调用 .times{} 等闭包方法时接收者类型为 Integer/Long
+            "java.lang.Integer",
+            "java.lang.Long",
+            // 基本类型名：int/long/double 等字面量上的方法调用（如 100.times{}）接收者类型是原始类型名，
+            // 间接导入检查按该名字校验；它们不是类、无法 import，白名单放行无安全含义
+            "int", "long", "double", "float", "boolean", "char", "short", "byte",
+            "groovy.lang.Range",
+            "groovy.lang.IntRange",
+            "groovy.lang.LongRange",
             "java.util.Date",
             "java.util.List",
             "java.util.Map",
@@ -110,15 +137,83 @@ public class GroovySandbox {
     /**
      * 禁止的语句类型。
      *
-     * <p>为何使用空列表：SecureASTCustomizer 的 import 白名单 + indirectImportCheck 已经能在 AST 层拦截
-     * 非法 import 语句，无需再通过语句黑名单重复限制。Groovy 3.0.9 中 SecureASTCustomizer 的
-     * setStatementsBlacklist 签名要求 {@code List<Class<? extends Statement>>}（不是 List<String>），
-     * 因此使用 {@link Collections#emptyList()} 占位以满足类型约束。
+     * <p>为何禁止 while/do-while：这是 `while(true){}` 挂死请求线程（DoS）最直接的入口，
+     * 表达式生成器从不产出这两种语句；配合 {@link LoopBudgetCustomizer} 的循环预算注入，
+     * 即使未来放开也仍受执行次数限制。for 循环保留给筛选步骤使用。
      *
      * <p>关联：被 {@link #createSecureCompilerConfiguration()} 通过
      * {@link SecureASTCustomizer#setStatementsBlacklist(List)} 调用。
      */
-    private static final List<Class<? extends Statement>> STATEMENTS_BLACKLIST = Collections.emptyList();
+    private static final List<Class<? extends Statement>> STATEMENTS_BLACKLIST = Collections.unmodifiableList(
+            Arrays.asList(WhileStatement.class, DoWhileStatement.class));
+
+    /**
+     * 表达式黑名单模式（全限定名/包前缀）。
+     *
+     * <p>为何需要：间接导入检查 + imports 白名单 + 接收者黑名单能拦截"直接"调用黑名单类，
+     * 但脚本仍可通过别名绕过静态类型检查，例如
+     * <pre>def R = java.lang.Runtime; R.getRuntime().exec('calc')</pre>
+     * 其中 R 的静态类型是 Object，接收者黑名单（按类型匹配）无法命中。
+     * 这里在表达式 AST 层扫描文本，凡出现黑名单类的全限定名或危险包前缀（java.io/java.net 等）
+     * 一律拒绝，堵住 `def X = 黑名单类; X.xxx()` 这类别名绕过。
+     *
+     * <p>为何用文本扫描：AST 阶段拿不到运行时类型，无法区分 `def x = []` 与 `def R = Runtime`；
+     * 按全限定名/包前缀匹配能覆盖所有直接书写黑名单类的路径（普通业务脚本不会引用这些名字）。
+     *
+     * <p>关联：通过 {@link SecureASTCustomizer#addExpressionCheckers} 注入，
+     * 对脚本中每个表达式节点执行；与 RECEIVERS_BLACKLIST 形成双保险。
+     */
+    private static final List<String> FORBIDDEN_EXPRESSION_PATTERNS = Collections.unmodifiableList(Arrays.asList(
+            "java.lang.System",
+            "java.lang.Runtime",
+            "java.lang.ProcessBuilder",
+            "java.lang.Thread",
+            "java.lang.ClassLoader",
+            "java.lang.Class",
+            "java.lang.Process",
+            "java.io.File",
+            "java.io.FileInputStream",
+            "java.io.FileOutputStream",
+            "java.io.FileReader",
+            "java.io.FileWriter",
+            "java.io.BufferedReader",
+            "java.io.BufferedWriter",
+            "java.io.PrintWriter",
+            "java.io.InputStream",
+            "java.io.OutputStream",
+            "java.net.URL",
+            "java.net.Socket",
+            "java.net.ServerSocket",
+            "java.net.HttpURLConnection",
+            "java.lang.reflect.Method",
+            "java.lang.reflect.Field",
+            "java.lang.reflect.Constructor",
+            "groovy.lang.GroovyClassLoader",
+            "groovy.lang.GroovyShell",
+            "groovy.lang.GroovyObject",
+            "groovy.util.GroovyScriptEngine",
+            "groovy.util.Eval",
+            // 包前缀：同包下其他危险类（如 java.io.FileOutputStream）也一并拦截
+            "java.io.",
+            "java.net.",
+            "java.lang.reflect."
+    ));
+
+    /**
+     * 黑名单类的裸类名（取自 {@link #RECEIVERS_BLACKLIST} 的简单名）。
+     *
+     * <p>为何需要：Groovy 脚本自动导入 java.lang.* / java.util.* / java.io.* 等包，
+     * 用户可写 `def R = Runtime; R.getRuntime()`——RHS 只是裸名 "Runtime"，
+     * 全限定名文本扫描（FORBIDDEN_EXPRESSION_PATTERNS）无法命中；
+     * 变量 R 的静态类型是 Object，接收者黑名单按类型匹配也拦不住。
+     * 因此对变量表达式名做精确匹配：凡变量名等于黑名单类的简单名（如 Runtime/File/Class）即拒绝。
+     *
+     * <p>关联：被 {@link #isForbidden(Expression)} 使用，与全限定名扫描一起构成表达式检查器。
+     */
+    private static final java.util.Set<String> FORBIDDEN_BARE_CLASS_NAMES = Collections.unmodifiableSet(
+            RECEIVERS_BLACKLIST.stream()
+                    .map(fqn -> fqn.substring(fqn.lastIndexOf('.') + 1))
+                    .collect(java.util.stream.Collectors.toSet()));
 
     /** 安全编译器配置，由 {@link #createSecureCompilerConfiguration()} 一次性构建，供外部 GroovyClassLoader 使用 */
     private final CompilerConfiguration compilerConfiguration;
@@ -165,11 +260,30 @@ public class GroovySandbox {
         // 间接导入检查（防止通过别名绕过白名单，如 def R = java.lang.Runtime; R.getRuntime()）
         secureCustomizer.setIndirectImportCheckEnabled(true);
 
+        // 表达式检查器：扫描黑名单全限定名/危险包前缀，堵住 def 别名绕过（见 FORBIDDEN_EXPRESSION_PATTERNS）
+        secureCustomizer.addExpressionCheckers(expression -> !isForbidden(expression));
+
         // 黑名单接收者：禁止直接调用这些类的方法，详见 RECEIVERS_BLACKLIST 注释
         secureCustomizer.setReceiversBlackList(RECEIVERS_BLACKLIST);
 
-        // 语句黑名单（空列表：import 已由 importsWhitelist + indirectImportCheck 拦截）
+        // 语句黑名单：禁止 while/do-while（见 STATEMENTS_BLACKLIST 注释）
         secureCustomizer.setStatementsBlacklist(STATEMENTS_BLACKLIST);
+
+        // 语句检查器：拒绝 for(;;)（无迭代集合的 for 等价于无限循环）；
+        // 语句总数上限在 LoopBudgetCustomizer 中按单次编译统计
+        // 语句检查器：拒绝 C 风格无限 for（for(;;) / for(i=0;;i++)，条件位是 EmptyExpression）
+        secureCustomizer.addStatementCheckers(statement -> {
+            if (statement instanceof ForStatement) {
+                Expression collection = ((ForStatement) statement).getCollectionExpression();
+                if (collection instanceof ClosureListExpression) {
+                    java.util.List<Expression> parts = ((ClosureListExpression) collection).getExpressions();
+                    if (parts.size() == 3 && parts.get(1) instanceof EmptyExpression) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        });
 
         // 2. ImportCustomizer - 预导入安全类（业务脚本无需写 import 即可直接用）
         ImportCustomizer importCustomizer = new ImportCustomizer();
@@ -186,9 +300,40 @@ public class GroovySandbox {
         // 预导入 Math 静态方法用于 Math.max / Math.min（GroovyExpressionGenerator 生成的脚本会用到）
         importCustomizer.addStaticStars("java.lang.Math");
 
-        config.addCompilationCustomizers(secureCustomizer, importCustomizer);
+        // 3. LoopBudgetCustomizer - 编译期向循环体/闭包体注入执行次数预算检查
+        // 注册在 SecureASTCustomizer 之后，保证注入的节点不会再被其复查
+        config.addCompilationCustomizers(secureCustomizer, importCustomizer, new LoopBudgetCustomizer());
 
         return config;
+    }
+
+    /**
+     * 判断表达式是否命中黑名单：
+     * - 变量表达式名等于黑名单类的裸类名（如 Runtime/File/Class）
+     * - 表达式文本包含黑名单类的全限定名或危险包前缀
+     *
+     * <p>关联：被 {@link #createSecureCompilerConfiguration()} 注入的表达式检查器调用。
+     *
+     * @param expression 待检查的 AST 表达式节点
+     * @return true 表示命中黑名单（应拒绝该表达式）
+     */
+    private static boolean isForbidden(Expression expression) {
+        if (expression instanceof VariableExpression) {
+            String name = ((VariableExpression) expression).getName();
+            if (FORBIDDEN_BARE_CLASS_NAMES.contains(name)) {
+                return true;
+            }
+        }
+        String text = expression.getText();
+        if (text == null) {
+            return false;
+        }
+        for (String pattern : FORBIDDEN_EXPRESSION_PATTERNS) {
+            if (text.contains(pattern)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

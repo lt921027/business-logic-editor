@@ -154,12 +154,13 @@ public class GroovyFunctionRegistry {
     /**
      * 注册脚本函数
      *
-     * <p>为何需要 buildFullScript：脚本中可能引用参数名（如 `return a + b`），
-     * 需要在脚本顶部添加 `def a; def b;` 声明，否则编译报错"变量未定义"。
-     * 实际参数值在 Closure.call 时通过 env 注入，覆盖声明时的 null 默认值。
+     * <p>脚本中可直接引用参数名（如 `return a + b`）：实际参数值在
+     * {@link ScriptFunctionClosure#call} 时按 params 顺序写入 env，
+     * 最终注入到 Groovy 执行引擎的 Binding 中，脚本内直接按参数名读取。
+     * 不要为参数拼接 `def a; def b;` 声明：那会把参数声明为 null 局部变量，
+     * 遮蔽 Binding 中的实参，导致脚本内参数永远为 null。
      *
-     * <p>关联：先经 {@link #buildFullScript} 拼接参数声明，再编译；
-     * 构造 {@link ScriptFunctionClosure} 包装。
+     * <p>关联：直接编译原始脚本，构造 {@link ScriptFunctionClosure} 包装。
      *
      * @param name   函数名
      * @param script Groovy 多行脚本
@@ -174,9 +175,8 @@ public class GroovyFunctionRegistry {
                 .build();
 
         functionDefinitions.put(name, definition);
-        // 脚本需要包装参数声明
-        String fullScript = buildFullScript(script, params);
-        CompiledGroovyScript compiled = compileExpression(fullScript);
+        // 直接编译原始脚本；参数在 call() 时注入 Binding，脚本内按参数名引用
+        CompiledGroovyScript compiled = compileExpression(script);
         compiledCache.put(name, compiled);
 
         Closure<?> closure = new ScriptFunctionClosure(definition, compiled);
@@ -270,8 +270,7 @@ public class GroovyFunctionRegistry {
     /**
      * 更新脚本函数（热更新）
      *
-     * <p>流程同 {@link #updateFunction}，区别在于 SCRIPT 类型会经
-     * {@link #buildFullScript} 拼接参数声明后编译。
+     * <p>流程同 {@link #updateFunction}，区别在于 SCRIPT 类型直接编译多行脚本。
      *
      * @param name      函数名
      * @param newScript 新的 Groovy 脚本
@@ -333,7 +332,7 @@ public class GroovyFunctionRegistry {
      * <p>按 {@link GroovyFunctionType} 分支选择编译方式和 Closure 包装类：
      * <ul>
      *   <li>EXPRESSION：直接编译 expression 字段，包装为 {@link ExpressionFunctionClosure}</li>
-     *   <li>SCRIPT：先 {@link #buildFullScript} 拼接参数声明，再编译，包装为 {@link ScriptFunctionClosure}</li>
+     *   <li>SCRIPT：直接编译脚本，包装为 {@link ScriptFunctionClosure}</li>
      *   <li>JAVA：不编译，直接包装为 {@link JavaFunctionClosure}</li>
      * </ul>
      *
@@ -352,8 +351,7 @@ public class GroovyFunctionRegistry {
                 break;
             }
             case SCRIPT: {
-                String fullScript = buildFullScript(definition.getScript(), definition.getParams());
-                CompiledGroovyScript compiled = compileExpression(fullScript);
+                CompiledGroovyScript compiled = compileExpression(definition.getScript());
                 compiledCache.put(name, compiled);
                 closure = new ScriptFunctionClosure(definition, compiled);
                 break;
@@ -463,37 +461,6 @@ public class GroovyFunctionRegistry {
         return engine.compile(expression);
     }
 
-    /**
-     * 构建完整脚本：在脚本前添加参数声明
-     *
-     * <p>对应 Aviator 版本 ScriptFunction.buildFullScript，将
-     * <pre>let a, b;</pre>
-     * 替换为 Groovy 的
-     * <pre>def a; def b;</pre>
-     *
-     * <p>为何需要在脚本顶部声明参数：
-     * Groovy 脚本中若直接使用未声明的变量会报"property not found"或编译错误。
-     * 在顶部用 `def a; def b;` 声明后，编译器将它们识别为局部变量，
-     * 运行时 Closure.call 通过 env 注入实际值会覆盖默认 null。
-     *
-     * <p>关联：被 {@link #registerScriptFunction} 和 {@link #applyRegistration}
-     * 在处理 SCRIPT 类型时调用。
-     *
-     * @param script 原始脚本内容
-     * @param params 参数名列表
-     * @return 带参数声明的完整脚本
-     */
-    private String buildFullScript(String script, String[] params) {
-        StringBuilder sb = new StringBuilder();
-        if (params != null && params.length > 0) {
-            for (String param : params) {
-                sb.append("def ").append(param).append(";\n");
-            }
-        }
-        sb.append(script);
-        return sb.toString();
-    }
-
     // ==================== Closure 实现 ====================
 
     /**
@@ -559,9 +526,8 @@ public class GroovyFunctionRegistry {
      * 脚本函数 Closure
      *
      * <p>对应 Aviator 的 ScriptFunction。
-     * 与 {@link ExpressionFunctionClosure} 实现几乎一致，区别在于编译时已通过
-     * {@link #buildFullScript} 在脚本顶部追加了 `def param;` 参数声明，
-     * 因此脚本中可直接引用参数名。
+     * 与 {@link ExpressionFunctionClosure} 实现几乎一致，区别在于编译的是多行脚本；
+     * 参数同样在 call() 时写入 env 并注入 Binding，脚本中可直接引用参数名。
      *
      * <p>为何不与 ExpressionFunctionClosure 合并：保留两个类便于通过 instanceof 区分类型，
      * 也对应 Aviator 版本中 ExpressionFunction 和 ScriptFunction 的分离设计。

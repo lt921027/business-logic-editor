@@ -33,8 +33,7 @@ public enum GroovyFunctionType {
      * <p>支持变量定义、条件判断、循环等复杂逻辑。
      *
      * <p>为何需要此类型：对应 Aviator 中通过 `let f = lambda(a,b) -> { ... } end` 定义的多行函数，
-     * 在 Groovy 中需先经 {@link GroovyFunctionRegistry#buildFullScript} 在脚本顶部追加参数声明
-     * `def a; def b;`，再编译为脚本，由
+     * 在 Groovy 中直接编译多行脚本（参数由调用方在 call() 时注入 Binding），由
      * {@link GroovyFunctionRegistry.ScriptFunctionClosure} 包装为 Closure。
      */
     SCRIPT,
