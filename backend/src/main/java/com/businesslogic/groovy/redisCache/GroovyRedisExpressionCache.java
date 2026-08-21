@@ -394,7 +394,7 @@ public class GroovyRedisExpressionCache {
         try {
             String versionStr = redisUtils.hGet(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo);
             if (versionStr == null || versionStr.isEmpty()) {
-                logger.warn("[GroovySourceCache] 鏃犳硶鑾峰彇婧愭姤鏂?{} 鐨勭増鏈彿锛屾湰鍦扮紦瀛樻湭鏇存柊", sourceNo);
+                logger.warn("[GroovySourceCache] 无法获取源报文 {} 的版本号，本地缓存未更新", sourceNo);
                 return;
             }
 
@@ -430,7 +430,7 @@ public class GroovyRedisExpressionCache {
         try {
             this.localGlobalVersion = Long.parseLong(globalVersionStr.trim());
         } catch (Exception e) {
-            logger.warn("[GroovySourceCache] 鏃犳硶瑙ｆ瀽鍏ㄥ眬鐗堟湰鍙? value={}", globalVersionStr, e);
+            logger.warn("[GroovySourceCache] 无法解析全局版本号 value={}", globalVersionStr, e);
         }
     }
 
