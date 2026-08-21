@@ -29,7 +29,6 @@ import java.util.Map;
  *   <li>直接持有 {@link GroovyExpressionEngine} 单例，绕过 Service 层用于测试</li>
  *   <li>通过 {@link GroovyExecutor#execute} 执行编译后的脚本（自动注入工具类和沙箱）</li>
  *   <li>sandbox-test 接口验证 {@link com.businesslogic.groovy.security.GroovySandbox} 的拦截能力</li>
- *   <li>clear-cache 接口调用 {@link GroovyExpressionEngine#clearCompileCache} 清空编译缓存</li>
  * </ul>
  */
 @RestController
@@ -126,26 +125,7 @@ public class GroovyEngineTestController {
     }
 
     /**
-     * 3. 清空编译缓存
-     *
-     * <p>为何需要此接口：测试场景下可能修改了沙箱配置或函数注册，需清空缓存强制重新编译。
-     *
-     * <p>关联：调用 {@link GroovyExpressionEngine#clearCompileCache}。
-     *
-     * @return 清理前后的缓存大小
-     */
-    @PostMapping("/clear-cache")
-    public Result<Map<String, Object>> clearCache() {
-        int size = engine.getCompileCacheSize();
-        engine.clearCompileCache();
-        Map<String, Object> resp = new HashMap<>();
-        resp.put("clearedCount", size);
-        resp.put("currentSize", engine.getCompileCacheSize());
-        return Result.success("编译缓存已清空", resp);
-    }
-
-    /**
-     * 4. 安全沙箱测试：尝试执行危险操作（应被拒绝）
+     * 3. 安全沙箱测试：尝试执行危险操作（应被拒绝）
      *
      * <p>默认测试用例尝试执行 `Runtime.getRuntime().exec('ls')`，应被
      * {@link com.businesslogic.groovy.security.GroovySandbox} 的 RECEIVERS_BLACKLIST

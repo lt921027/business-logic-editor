@@ -14,8 +14,6 @@ import java.util.Objects;
  * 序列化/反序列化通过源码字符串实现（存源码 → 重新编译）。
  *
  * <p>关联：由 {@link GroovyExpressionEngine#compile(String)} 创建；
- * 被 {@link GroovyExpressionEngine#execute(CompiledGroovyScript, Map)} 执行；
- * 被 {@link GroovyExpressionCache} / {@link com.businesslogic.groovy.redisCache.GroovyRedisExpressionCache}
  * 等缓存层持有；被 {@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry} 内部 Closure 调用。
  */
 public class CompiledGroovyScript {
@@ -26,7 +24,7 @@ public class CompiledGroovyScript {
     /** 原始源码（用于序列化和缓存：Groovy Class 不可序列化，存储/恢复以源码字符串为载体） */
     private final String source;
 
-    /** 源码的 MD5 hash 值（用作 {@link GroovyExpressionEngine#compile(String)} 的编译缓存 key） */
+    /** 本次编译的唯一标识（非 MD5，也不用于编译缓存复用） */
     private final String sourceHash;
 
     /**
@@ -34,7 +32,7 @@ public class CompiledGroovyScript {
      *
      * @param scriptClass 已编译的 Script 子类
      * @param source      原始源码字符串
-     * @param sourceHash  源码 MD5（由 {@link GroovyExpressionEngine#md5(String)} 计算）
+     * @param sourceHash  本次编译的唯一标识
      */
     public CompiledGroovyScript(Class<? extends Script> scriptClass, String source, String sourceHash) {
         this.scriptClass = scriptClass;
@@ -47,8 +45,6 @@ public class CompiledGroovyScript {
      *
      * <p>为何每次执行都要新建：Groovy {@link Script} 实例持有 {@link groovy.lang.Binding} 状态（变量、闭包等），
      * 多线程共享同一实例会发生状态串扰。每次执行前调用此方法拿到独立实例，再绑定各自的 Binding，保证线程安全。
-     *
-     * <p>关联：被 {@link GroovyExpressionEngine#execute(CompiledGroovyScript, Map)} 调用。
      *
      * @return 新的 Script 实例
      */
@@ -66,16 +62,13 @@ public class CompiledGroovyScript {
         return source;
     }
 
-    /** @return 源码 hash，被 equals/hashCode 用于缓存层比对 */
+    /** @return 本次编译的唯一标识 */
     public String getSourceHash() {
         return sourceHash;
     }
 
     /**
-     * 基于 sourceHash 判等：两份源码 hash 相同即视为同一编译结果。
-     *
-     * <p>为何如此设计：Groovy Class 对象身份敏感（每次 parseClass 会生成新 Class），
-     * 直接比较 Class 不稳定；改用源码 hash 可让缓存命中判断变得确定性。
+     * 基于每次编译生成的唯一标识判等。
      */
     @Override
     public boolean equals(Object o) {
@@ -85,7 +78,7 @@ public class CompiledGroovyScript {
         return Objects.equals(sourceHash, that.sourceHash);
     }
 
-    /** 与 {@link #equals} 一致，基于 sourceHash */
+    /** 与 {@link #equals} 一致，基于本次编译的唯一标识 */
     @Override
     public int hashCode() {
         return sourceHash != null ? sourceHash.hashCode() : 0;

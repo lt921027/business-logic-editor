@@ -15,7 +15,7 @@ import java.util.Map;
  * <p>对应 Aviator 的 AviatorExecutor。
  * 封装表达式编译和执行流程，提供静态方法。
  *
- * <p>使用单例引擎实例，保证编译缓存和函数注册的全局共享。
+ * <p>使用单例引擎实例，保证函数注册等运行时状态的全局共享。
  *
  * <p>关联体系：
  * <ul>
@@ -35,9 +35,7 @@ public class GroovyExecutor {
      *
      * <p>为何使用静态 final 单例：
      * <ul>
-     *   <li>编译缓存（{@link GroovyExpressionEngine#compileCache}）需全局共享，多次实例化会导致缓存失效</li>
-     *   <li>函数注册（{@link GroovyExpressionEngine#registeredFunctions}）需全局可见</li>
-     *   <li>GroovyClassLoader 频繁创建会浪费 Metaspace</li>
+     *   <li>引擎实例需全局唯一，保证函数注册等运行时状态一致</li>
      * </ul>
      */
     private static final GroovyExpressionEngine engine = new GroovyExpressionEngine();
@@ -110,7 +108,7 @@ public class GroovyExecutor {
      * 预编译脚本（不执行）。
      *
      * <p>关联：委托给 {@link GroovyExpressionEngine#compile(String)}；
-     * 被 {@link com.businesslogic.groovy.service.GroovyBusinessLogicService#save} 等方法用于保存时预编译缓存。
+     * 被 {@link com.businesslogic.groovy.service.GroovyBusinessLogicService#save} 等方法用于保存时预编译校验。
      *
      * @param scriptCode 脚本源码
      * @return 编译后的脚本
@@ -123,7 +121,7 @@ public class GroovyExecutor {
      * 获取全局单例引擎。
      *
      * <p>为何暴露：部分组件（如 {@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry}）
-     * 需要直接操作引擎（注册函数、查询编译缓存大小），通过此方法获取单例引用。
+     * 需要直接操作引擎（注册函数等），通过此方法获取单例引用。
      *
      * @return 全局引擎实例
      */

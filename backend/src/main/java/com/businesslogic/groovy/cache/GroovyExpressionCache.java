@@ -19,8 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>被 {@link com.businesslogic.groovy.service.GroovyBusinessLogicService} 注入并使用，
  *       在 save/update 时写入缓存，在 executeLogic 时读取缓存，在 delete 时移除缓存</li>
  *   <li>缓存的 {@link CompiledGroovyScript} 由 {@link com.businesslogic.groovy.engine.GroovyExecutor#compile} 产出</li>
- *   <li>与 {@link GroovyFeatureExpressionCache} 不同：本缓存按业务逻辑 ID 索引（单条规则），
- *       GroovyFeatureExpressionCache 按交易码+特征码索引（多维规则矩阵）</li>
  * </ul>
  *
  * <p>线程安全：使用 {@link ConcurrentHashMap}，所有方法无锁，适合读多写少场景。

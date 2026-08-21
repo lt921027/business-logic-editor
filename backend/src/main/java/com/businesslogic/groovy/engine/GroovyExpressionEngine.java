@@ -9,13 +9,14 @@ import com.businesslogic.groovy.util.GroovyDateFunctions;
 import groovy.lang.Binding;
 import groovy.lang.GroovyClassLoader;
 import groovy.lang.Script;
+import org.codehaus.groovy.control.CompilerConfiguration;
+import org.codehaus.groovy.runtime.InvokerHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -33,7 +34,7 @@ import java.util.concurrent.TimeoutException;
  * <p>核心设计：
  * <ul>
  *   <li>编译：使用 GroovyClassLoader + SecureASTCustomizer 安全编译</li>
- *   <li>缓存：ConcurrentHashMap<源码MD5, Script Class>，避免重复编译</li>
+ *   <li>编译策略：每次编译生成新的 Script Class，不缓存、不复用 MD5</li>
  *   <li>执行：每次创建新 Script 实例 + Binding，保证线程安全</li>
  *   <li>序列化：返回源码字符串（Groovy Class 无法标准序列化）</li>
  * </ul>
@@ -43,7 +44,6 @@ import java.util.concurrent.TimeoutException;
  *   <li>被 {@link GroovyExecutor} 以单例形式包装对外暴露</li>
  *   <li>依赖 {@link GroovySandbox} 提供安全编译器配置</li>
  *   <li>产出的 {@link CompiledGroovyScript} 被各缓存层（{@link com.businesslogic.groovy.cache.GroovyExpressionCache}
- *       / {@link com.businesslogic.groovy.cache.GroovyFeatureExpressionCache}
  *       / {@link com.businesslogic.groovy.redisCache.GroovyRedisExpressionCache}）持有</li>
  *   <li>自定义函数由 {@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry} 通过
  *       {@link #addFunction(String, Object)} 注入</li>
@@ -54,26 +54,20 @@ public class GroovyExpressionEngine {
     private static final Logger logger = LoggerFactory.getLogger(GroovyExpressionEngine.class);
 
     /**
-     * 编译缓存：源码 MD5 → Script Class。
-     *
-     * <p>为何需要：Groovy parseClass 涉及词法/语法/语义分析 + 字节码生成，开销远高于 Aviator 编译。
-     * 同一脚本重复执行时复用已编译 Class 可显著降低延迟。
-     *
-     * <p>为何以 MD5 为 key：源码可能很长，hash 后作为定长 key 更高效；
-     * 配合 {@link CompiledGroovyScript#equals} 基于 sourceHash 的判等，整链路一致。
+     * 每次编译递增的唯一标识，仅用于生成 Groovy 类名，不做编译缓存和 MD5 复用。
      */
-    private final ConcurrentHashMap<String, Class<? extends Script>> compileCache = new ConcurrentHashMap<>();
+    private final AtomicLong classSequence = new AtomicLong();
 
     /** 安全沙箱，提供 {@link groovy.lang.GroovyClassLoader} 所需的 CompilerConfiguration */
     private final GroovySandbox sandbox;
 
     /** Groovy 类加载器（使用 {@link GroovySandbox#getCompilerConfiguration()} 的安全配置） */
-    private final GroovyClassLoader classLoader;
+    private final CleanableGroovyClassLoader classLoader;
 
     /**
      * 已注册的自定义函数（name → Closure 或 Java 对象）。
      *
-     * <p>关联：由 {@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry#applyRegistration} 等方法
+     * <p>关联：由  等方法
      * 通过 {@link #addFunction(String, Object)} 写入；在 {@link #execute(CompiledGroovyScript, Map)}
      * 中作为 Binding 变量注入，让脚本中以普通函数名调用（如 `myFunc(a, b)`）。
      */
@@ -108,7 +102,7 @@ public class GroovyExpressionEngine {
      */
     public GroovyExpressionEngine() {
         this.sandbox = new GroovySandbox();
-        this.classLoader = new GroovyClassLoader(
+        this.classLoader = new CleanableGroovyClassLoader(
                 getClass().getClassLoader(),
                 sandbox.getCompilerConfiguration());
         this.scriptExecutor = Executors.newFixedThreadPool(8, runnable -> {
@@ -128,8 +122,7 @@ public class GroovyExpressionEngine {
      * 便于在堆栈/日志中定位；同名脚本会被 ClassLoader 视为同一类（即使源码已变），因此 hash 必须随源码变化。
      *
      * <p>关联：被 {@link GroovyExecutor#compile(String)}、{@link #deserialize(String)}、
-     * {@link #eval(String, Map)}、{@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry#compileExpression} 调用；
-     * 间接被各缓存层（{@link com.businesslogic.groovy.cache.GroovyFeatureExpressionCache#cacheExpression} 等）调用。
+ * 间接被业务缓存层调用。
      *
      * @param scriptSource 脚本源码
      * @return 编译后的包装对象（包含 Script Class、源码、源码 hash）
@@ -139,20 +132,29 @@ public class GroovyExpressionEngine {
             throw new GroovyCompileException(
                     "Groovy 脚本长度超限（" + scriptSource.length() + " > " + maxScriptLength + "）", null);
         }
-        String hash = md5(scriptSource);
+        String uniqueClassId = String.valueOf(classSequence.incrementAndGet());
+        String hash = uniqueClassId;
+        String h = uniqueClassId;
 
-        Class<? extends Script> clazz = compileCache.computeIfAbsent(hash, h -> {
+        {
             try {
                 logger.debug("[GroovyEngine] 编译脚本, hash={}, length={}", h, scriptSource.length());
-                Class<?> parsed = classLoader.parseClass(scriptSource, "GroovyExpr_" + h);
-                return parsed.asSubclass(Script.class);
+                Class<?> parsed = classLoader.parseClass(scriptSource, "GroovyExpr_" + uniqueClassId);
+                Class<? extends Script> clazz;
+                try {
+                    clazz = parsed.asSubclass(Script.class);
+                } catch (Exception e) {
+                    cleanupClassCache(parsed);
+                    throw new GroovyCompileException("Groovy script result is not a Script: " + e.getMessage(), e);
+                }
+
+                cleanupClassCache(clazz);
+                return new CompiledGroovyScript(clazz, scriptSource, hash);
             } catch (Exception e) {
                 logger.error("[GroovyEngine] 编译失败, hash={}, error={}", h, e.getMessage());
                 throw new GroovyCompileException("Groovy 脚本编译失败: " + e.getMessage(), e);
             }
-        });
-
-        return new CompiledGroovyScript(clazz, scriptSource, hash);
+        }
     }
 
     /**
@@ -164,13 +166,17 @@ public class GroovyExpressionEngine {
      * <p>注入顺序（后注入覆盖先注入）：工具类 → 自定义函数 → 静态函数类 → 业务 env。
      * 业务 env 最后注入，可让调用方临时覆盖默认工具类（虽然不建议）。
      *
-     * <p>关联：被 {@link GroovyExecutor#execute(CompiledGroovyScript, Map)} 等多个重载调用；
-     * 被 {@link com.businesslogic.groovy.hotload.GroovyFunctionRegistry.ExpressionFunctionClosure#call} 等闭包内部调用。
-     *
-     * @param compiled 编译后的脚本
-     * @param env      环境变量（业务入参），可为 null
      * @return 脚本 return 语句的返回值；无 return 则返回 null
      */
+    private void cleanupClassCache(Class<?> scriptClass) {
+        try {
+            classLoader.cleanupCompilation(scriptClass);
+        } catch (Exception e) {
+            logger.warn("[GroovyEngine] 娓呯悊 classCache 澶辫触, class={}, error={}",
+                    scriptClass != null ? scriptClass.getName() : "null", e.getMessage());
+        }
+    }
+
     public Object execute(CompiledGroovyScript compiled, Map<String, Object> env) {
         try {
             Script script = compiled.newScriptInstance();
@@ -269,8 +275,6 @@ public class GroovyExpressionEngine {
      * <p>为何如此设计：与 Aviator 不同，Groovy 编译后的 Class 由 GroovyClassLoader 动态生成，
      * 无法被标准 Java 序列化。改用源码字符串作为持久化载体，反序列化时由 {@link #deserialize} 重新编译。
      *
-     * <p>关联：被 {@link com.businesslogic.groovy.redisCache.GroovyRedisExpressionCache#compileAndStore}
-     * 间接使用（该方法直接返回源码字符串存入 Redis）。
      */
     public String serialize(CompiledGroovyScript compiled) {
         return compiled.getSource();
@@ -278,9 +282,6 @@ public class GroovyExpressionEngine {
 
     /**
      * 反序列化：从源码字符串重新编译为 CompiledGroovyScript。
-     *
-     * <p>关联：与 {@link #serialize} 互为逆操作；被
-     * {@link com.businesslogic.groovy.redisCache.GroovyRedisExpressionCache#compileFromSource} 调用。
      */
     public CompiledGroovyScript deserialize(String source) {
         return compile(source);
@@ -326,51 +327,21 @@ public class GroovyExpressionEngine {
     }
 
     /**
-     * 清空编译缓存。
-     *
-     * <p>为何需要：长时间运行后，源码变更会产生大量历史 Class 占用 Metaspace；
-     * 提供手动清空入口（测试 Controller 暴露）用于运维/测试场景。
-     *
-     * <p>关联：被 {@link com.businesslogic.groovy.controller.GroovyEngineTestController#clearCache} 暴露为 HTTP 接口。
+     * 兼容旧接口：当前为无编译缓存模式，不做实际清理。
      */
     public void clearCompileCache() {
-        int size = compileCache.size();
-        compileCache.clear();
-        logger.info("[GroovyEngine] 清空编译缓存, count={}", size);
+        logger.debug("[GroovyEngine] 当前为无编译缓存模式，clearCompileCache 为空操作");
     }
 
-    /** @return 当前编译缓存条目数（监控/状态接口使用） */
+    /** @return 当前编译缓存条目数；无缓存模式下固定返回 0 */
     public int getCompileCacheSize() {
-        return compileCache.size();
-    }
-
-    /**
-     * 计算输入字符串的 MD5 哈希。
-     *
-     * <p>为何不直接用 String.hashCode：String.hashCode 是 32 位 int，碰撞概率高；
-     * MD5 是 128 位，作为缓存 key 更安全。MD5 不可用时降级为 hashCode，保证健壮性。
-     *
-     * <p>关联：被 {@link #compile} 调用，产出值同时作为 compileCache key 与 {@link CompiledGroovyScript#sourceHash}。
-     */
-    private String md5(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return String.valueOf(input.hashCode());
-        }
+        return 0;
     }
 
     /**
      * 编译异常：脚本语法错误或违反沙箱规则时抛出。
      *
-     * <p>关联：由 {@link #compile} 抛出；被 {@link com.businesslogic.groovy.cache.GroovyFeatureExpressionCache#cacheExpression}
-     * 等上层捕获并转为业务可处理的 CacheResult.COMPILE_ERROR。
+ * <p>关联：由 {@link #compile} 抛出；上层可根据业务需要捕获并转为可处理结果。
      */
     public static class GroovyCompileException extends RuntimeException {
         public GroovyCompileException(String message, Throwable cause) {
@@ -386,6 +357,23 @@ public class GroovyExpressionEngine {
     public static class GroovyExecuteException extends RuntimeException {
         public GroovyExecuteException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    private static final class CleanableGroovyClassLoader extends GroovyClassLoader {
+
+        private CleanableGroovyClassLoader(ClassLoader parent, CompilerConfiguration config) {
+            super(parent, config);
+        }
+
+        private void cleanupCompilation(Class<?> scriptClass) {
+            ClassLoader compileLoader = scriptClass.getClassLoader();
+            for (Class<?> loaded : getLoadedClasses()) {
+                if (loaded.getClassLoader() == compileLoader) {
+                    removeClassCacheEntry(loaded.getName());
+                    InvokerHelper.removeClass(loaded);
+                }
+            }
         }
     }
 }
