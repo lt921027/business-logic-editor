@@ -241,48 +241,25 @@ public class GroovyExpressionGenerator {
         return cleaned;
     }
 
-    /**
-     * 将多个特征的表达式合并为一个完整的交易码级源报文表达式。
-     *
-     * <p>每个特征表达式必须是独立的 Groovy 方法定义（即 {@link #generate} 生成的单特征脚本），
-     * 合并器会：</p>
-     * <ol>
-     *   <li>从表达式中提取方法名（def xxx()）；</li>
-     *   <li>提取 def xxx() 方法定义块（方法体按花括号配对），丢弃方法块之外的前后内容
-     *       （含末尾的 return xxx() 调用，合并脚本统一在末尾返回 Map）；</li>
-     *   <li>按特征顺序拼接所有方法定义；</li>
-     *   <li>追加统一调度段，按特征编码调用各方法并放入 LinkedHashMap 返回。</li>
-     * </ol>
-     *
-     * <p>为何由合并器统一返回 Map：执行器通过 script.run() 取顶层返回值，
-     * 合并脚本顶层 return 一个 Map&lt;featureCode, value&gt;，调用方一次拿到全部特征结果。</p>
-     *
-     * @param features 特征列表（特征编码 + 单特征 Groovy 表达式），列表顺序即返回 Map 的字段顺序
-     * @return 可被 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#compile} 编译的交易码级 Groovy 源码
-     */
-    public String mergeFeatureExpressions(List<FeatureExpression> features) {
-        return mergeFeatureExpressions(features, null);
-    }
 
     /**
      * 将多个特征的表达式合并为一个完整的交易码级源报文表达式，并在脚本头写入发布元数据。
      *
      * <p>脚本头包含：交易码、发布版本号、发布时间、特征数量；
-     * 每个特征前标注默认值、返回值类型和该特征表达式源码的 MD5 hash，便于线上定位是哪次发布、哪个特征。</p>
+     * 每个特征前标注特征名称、特征编码、特征数据类型、版本号、特征描述、
+     * 默认值、返回值类型和该特征表达式源码的 MD5 hash，便于线上定位是哪次发布、哪个特征。</p>
      *
-     * <p>默认值与返回值类型优先取 {@link FeatureExpression} 上显式传入的值；
+     * <p>默认值与返回值类型优先取 {@link FeatureConfigDTO} 上显式传入的值；
      * 未传时默认值从方法体中的 `def result = ...` 解析，返回值类型按默认值表达式推断。</p>
      *
      * <p>长度校验：合并过程中实时对照 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#getMaxScriptLength()}
      * （与引擎编译时的限制保持一致），超过限制直接抛 IllegalArgumentException，避免发布编译不过的脚本。</p>
      *
-     * <p>其余合并逻辑与 {@link #mergeFeatureExpressions(List)} 一致。</p>
-     *
-     * @param features 特征列表（特征编码 + 单特征 Groovy 表达式），列表顺序即返回 Map 的字段顺序
+     * @param features 特征配置列表（{@link FeatureConfigDTO}），列表顺序即返回 Map 的字段顺序
      * @param meta     发布元数据（交易码/版本号/发布时间），可为 null，缺失字段在脚本头显示为 "-"
      * @return 可被 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#compile} 编译的交易码级 Groovy 源码
      */
-    public String mergeFeatureExpressions(List<FeatureExpression> features, MergeMeta meta) {
+    public String mergeFeatureExpressions(List<FeatureConfigDTO> features, MergeMeta meta) {
         if (features == null || features.isEmpty()) {
             return "return [:]";
         }
@@ -296,9 +273,9 @@ public class GroovyExpressionGenerator {
         LinkedHashMap<String, String> methodNameByFeature = new LinkedHashMap<>();
         Set<String> usedMethodNames = new HashSet<>();
 
-        for (FeatureExpression feature : features) {
+        for (FeatureConfigDTO feature : features) {
             String featureCode = feature.getFeatureCode();
-            String expression = feature.getExpression();
+            String expression = feature.getRunExpress();
 
             if (featureCode == null || featureCode.trim().isEmpty()) {
                 throw new IllegalArgumentException("特征编码不能为空");
@@ -314,17 +291,18 @@ public class GroovyExpressionGenerator {
                         "特征方法名重复（请保证特征名称唯一）: " + methodName + "，特征编码: " + featureCode);
             }
 
-            String defaultValue = feature.getDefaultValue() != null
-                    ? feature.getDefaultValue()
+            String defaultValue = feature.getFeatureDefaultValue() != null
+                    ? feature.getFeatureDefaultValue()
                     : extractDefaultValue(methodBlock.getBody());
-            String returnType = feature.getReturnType() != null
-                    ? feature.getReturnType()
+            String returnType = feature.getFeatureDataType() != null
+                    ? feature.getFeatureDataType()
                     : inferReturnType(defaultValue);
 
-            script.append("// ===== 特征: ").append(featureCode).append(" =====\n");
-            script.append("// 默认值: ").append(commentSafe(defaultValue)).append("\n");
-            script.append("// 返回值类型: ").append(commentSafe(returnType)).append("\n");
-            script.append("// 源码hash: ").append(md5(expression)).append("\n\n");
+            script.append("// ===== 特征: ").append(commentSafe(featureCode)).append(" =====\n");
+            script.append("// 特征名称: ").append(commentSafe(feature.getFeatureName())).append("\n");
+            script.append("// 特征数据类型: ").append(commentSafe(feature.getFeatureDataType())).append("\n");
+            script.append("// 版本号: ").append(commentSafe(feature.getVersion())).append("\n");
+            script.append("// 特征描述: ").append(commentSafe(feature.getFeatureLogicDesc())).append("\n");
             script.append(methodBlock.getBody()).append("\n\n");
             ensureWithinScriptLengthLimit(script.length(), maxScriptLength, "超限特征: " + featureCode);
             methodNameByFeature.put(featureCode, methodName);
@@ -397,6 +375,9 @@ public class GroovyExpressionGenerator {
      * 将值中的换行/制表符替换为空格，避免破坏注释行。
      */
     private String commentSafe(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "-";
+        }
         return value.replace("\r", " ").replace("\n", " ").replace("\t", " ");
     }
 
@@ -413,7 +394,7 @@ public class GroovyExpressionGenerator {
 
     /**
      * 按默认值表达式推断返回值类型；推断不出时返回 "动态(def)"。
-     * 业务侧若已知确切类型，可通过 {@link FeatureExpression#getReturnType()} 显式传入。
+     * 业务侧若已知确切类型，可通过 {@link FeatureConfigDTO#getFeatureDataType()} 显式传入。
      */
     private String inferReturnType(String defaultValue) {
         if (defaultValue == null || defaultValue.trim().isEmpty() || "-".equals(defaultValue.trim())) {
