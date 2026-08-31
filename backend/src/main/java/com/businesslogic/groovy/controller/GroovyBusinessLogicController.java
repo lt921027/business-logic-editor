@@ -25,10 +25,8 @@ import java.util.Map;
 /**
  * Groovy 业务逻辑控制器
  *
- * <p>对应 Aviator 的 BusinessLogicController，业务逻辑保持一致。
- *
- * <p>使用独立的 URL 前缀 /groovy-business-logic/ 与 Aviator 控制器隔离，
- * 调用方可根据需要选择使用 Aviator 或 Groovy 引擎。
+ * <p>使用独立的 URL 前缀 /groovy-business-logic/ 提供业务逻辑的保存、
+ * 更新、查询、删除与执行接口。
  *
  * <p>关联体系：
  * <ul>
@@ -36,7 +34,7 @@ import java.util.Map;
  *   <li>使用 {@link ObjectMapper} 将 execute 接口的 Map 入参序列化为 JSON 字符串
  *       传给 service.executeLogic</li>
  *   <li>使用 {@link Result} 包装统一响应格式</li>
- *   <li>与 Aviator 版 BusinessLogicController 路径不同，但接口签名保持一致，便于前端切换</li>
+ *   <li>接口签名与业务逻辑服务保持对应，便于前端调用</li>
  * </ul>
  */
 @RestController

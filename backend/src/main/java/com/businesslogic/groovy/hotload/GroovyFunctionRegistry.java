@@ -16,8 +16,6 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Groovy 自定义函数注册中心
  *
- * <p>对应 Aviator 的 AviatorFunctionRegistry，业务逻辑保持一致。
- *
  * <p>核心设计：
  * <ul>
  *   <li>EXPRESSION 类型：将表达式编译为 {@link CompiledGroovyScript}，运行时构造闭包调用</li>
@@ -216,8 +214,6 @@ public class GroovyFunctionRegistry {
 
     /**
      * 注册静态函数类
-     *
-     * <p>对应 Aviator 的 registerStaticFunctions，使用 Groovy 引擎的静态函数注册能力。
      *
      * <p>为何单独提供此方法：静态函数（如 {@link com.businesslogic.groovy.util.GroovyDateFunctions}）
      * 是按类批量注册，而非单个函数，与上述按 name 注册的流程不同，故不进入 functionDefinitions Map，
@@ -466,8 +462,7 @@ public class GroovyFunctionRegistry {
     /**
      * 表达式函数 Closure
      *
-     * <p>对应 Aviator 的 ExpressionFunction。
-     * 调用时将参数按 params 顺序绑定到环境，然后执行编译后的表达式。
+     * <p>调用时将参数按 params 顺序绑定到环境，然后执行编译后的表达式。
      *
      * <p>为何每次 call 都创建新 env：Groovy 脚本执行需通过 Binding 注入变量，
      * 而 Binding 不是线程安全的。每次调用新建 HashMap 避免并发污染。
@@ -525,12 +520,10 @@ public class GroovyFunctionRegistry {
     /**
      * 脚本函数 Closure
      *
-     * <p>对应 Aviator 的 ScriptFunction。
-     * 与 {@link ExpressionFunctionClosure} 实现几乎一致，区别在于编译的是多行脚本；
+     * <p>与 {@link ExpressionFunctionClosure} 实现几乎一致，区别在于编译的是多行脚本；
      * 参数同样在 call() 时写入 env 并注入 Binding，脚本中可直接引用参数名。
      *
-     * <p>为何不与 ExpressionFunctionClosure 合并：保留两个类便于通过 instanceof 区分类型，
-     * 也对应 Aviator 版本中 ExpressionFunction 和 ScriptFunction 的分离设计。
+     * <p>为何不与 ExpressionFunctionClosure 合并：保留两个类便于通过 instanceof 区分类型。
      */
     private static class ScriptFunctionClosure extends Closure<Object> {
         private final GroovyFunctionDefinition definition;
@@ -593,7 +586,6 @@ public class GroovyFunctionRegistry {
          *
          * <p>为何传入空 env：当前实现未将 Groovy 调用上下文（如当前 Binding 变量）
          * 透传给 Java 函数，仅传 args。若 Java 函数需要访问上下文，需自行通过其他方式获取。
-         * 这与 Aviator 版本的行为一致。
          *
          * @param args 调用方传入的参数
          * @return Java 函数返回值

@@ -3,6 +3,7 @@ package com.businesslogic.util;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.businesslogic.dto.JsonPathParamDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,64 +133,60 @@ public class InputDataBuilder {
     }
 
     /**
-     * 将前端传回的带类型信息的扁平数据构建为 Aviator 表达式可用的 JSON 字符串
+     * 将前端传回的表达式的参数列表构建为表达式可用的 inputData JSON 字符串
      *
-     * <p>前端传回的数据格式为 {@code List<Map<String, Object>>}，每个 Map 包含：
+     * <p>前端每个参数节点对应一个 {@link JsonPathParamDTO}，包含 jsonPath、value、jsonType 三个字段。</p>
+     *
+     * <p>支持的 jsonType：</p>
      * <ul>
-     *   <li>{@code path}: 字段路径（如 "PH010R01"、"A.B.C"、"arr[0].name"）</li>
-     *   <li>{@code value}: 字段值（字符串形式）</li>
-     *   <li>{@code type}: 数据类型（如 "string"、"number"、"boolean"、"null"）</li>
+     *   <li>{@code string} / {@code String}: 字符串类型，JSON 中值带引号</li>
+     *   <li>{@code number} / {@code int} / {@code Integer} / {@code long} / {@code Long}: 整数类型</li>
+     *   <li>{@code double} / {@code Double} / {@code float} / {@code Float}: 浮点数类型</li>
+     *   <li>{@code boolean} / {@code Boolean}: 布尔类型，JSON 中值为 true/false</li>
+     *   <li>{@code null} / {@code Null}: null 类型，JSON 中值为 null</li>
+     *   <li>{@code object} / {@code Object} / {@code json} / {@code map}: 对象类型，
+     *       value 为用户直接输入的 JSON 字符串（如 {@code "{\"name\":\"Tom\"}"}）</li>
+     *   <li>{@code array} / {@code Array} / {@code list} / {@code List}: 数组类型，
+     *       value 为用户直接输入的 JSON 字符串（如 {@code "[1,2,3]"}）</li>
      * </ul>
      *
-     * <p>示例输入：
+     * <p>示例输入：</p>
      * <pre>{@code
      * [
-     *   {"path": "PH010R01", "value": "11", "type": "number"},
-     *   {"path": "PH010R02", "value": "abc", "type": "string"},
-     *   {"path": "PH010R03", "value": "true", "type": "boolean"},
-     *   {"path": "arr[0].name", "value": "Tom", "type": "string"}
+     *   {"jsonPath": "$.amount", "value": "500", "jsonType": "number"},
+     *   {"jsonPath": "$.user", "value": "{\"name\":\"Tom\",\"age\":30}", "jsonType": "object"},
+     *   {"jsonPath": "$.tags", "value": "[\"a\",\"b\"]", "jsonType": "array"}
      * ]
      * }</pre>
      *
-     * <p>生成的 JSON：
+     * <p>生成的 inputData：</p>
      * <pre>{@code
-     * {
-     *   "PH010R01": 11,
-     *   "PH010R02": "abc",
-     *   "PH010R03": true,
-     *   "arr": [{"name": "Tom"}]
-     * }
+     * {"amount":500,"user":{"name":"Tom","age":30},"tags":["a","b"]}
      * }</pre>
      *
-     * <p>支持的类型：
-     * <ul>
-     *   <li>{@code string} / {@code String}: 字符串类型，JSON 中值带引号</li>
-     *   <li>{@code number} / {@code Number} / {@code int} / {@code Integer} / {@code long} / {@code Long}: 数字类型，JSON 中值不带引号</li>
-     *   <li>{@code double} / {@code Double} / {@code float} / {@code Float}: 浮点数类型，JSON 中值不带引号</li>
-     *   <li>{@code boolean} / {@code Boolean}: 布尔类型，JSON 中值为 true/false，不带引号</li>
-     *   <li>{@code null} / {@code Null}: null 类型，JSON 中值为 null</li>
-     * </ul>
+     * <p>路径支持数组通配符 {@code [*]}：表示把后续路径应用到数组的每个元素。
+     * 例如 {@code "A[*].B"} 会给 A 数组的所有元素设置 B 字段；如果数组为空，则先创建一个元素。</p>
      *
-     * @param dataList 前端传回的带类型信息的数据列表
-     * @return 构建好的 JSON 字符串，可直接作为 Aviator 表达式的 inputData 使用
-     * @throws IllegalArgumentException 当 dataList 为 null 时抛出
+     * @param paramList 前端传回的表达式的参数列表（JsonPathParamDTO 对象）
+     * @return 构建好的 JSON 字符串，可直接作为 inputData 传入表达式引擎执行
+     * @throws IllegalArgumentException 当 paramList 为 null 时抛出
      */
-    public static String buildJsonWithType(List<Map<String, Object>> dataList) {
-        if (dataList == null) {
-            throw new IllegalArgumentException("dataList 不能为 null");
+    public static String buildInputDataJson(List<JsonPathParamDTO> paramList) {
+        if (paramList == null) {
+            throw new IllegalArgumentException("paramList 不能为 null");
         }
 
-        if (dataList.isEmpty()) {
+        if (paramList.isEmpty()) {
             return "{}";
         }
 
         // 使用 JSONObject 保持插入顺序（LinkedHashMap 底层）
         JSONObject root = new JSONObject(new LinkedHashMap<>());
 
-        for (Map<String, Object> item : dataList) {
-            String rawPath = (String) item.get("path");
-            String valueStr = (String) item.get("value");
-            String type = (String) item.get("type");
+        for (JsonPathParamDTO param : paramList) {
+            String rawPath = param.getJsonPath();
+            Object value = param.getValue();
+            String type = param.getJsonType();
 
             if (rawPath == null || rawPath.trim().isEmpty()) {
                 logger.warn("路径为空，跳过该条目");
@@ -205,27 +202,15 @@ public class InputDataBuilder {
             }
 
             // 根据类型转换值
-            Object convertedValue = convertValueByType(valueStr, type);
+            Object convertedValue = convertValueByType(value, type);
 
             // 解析路径并设置值
             setNestedValue(root, path, convertedValue, rawPath);
         }
 
         String result = root.toJSONString();
-        logger.info("构建 JSON 完成，输入条目数：{}，JSON 长度：{}", dataList.size(), result.length());
+        logger.info("构建 JSON 完成，输入条目数：{}，JSON 长度：{}", paramList.size(), result.length());
         return result;
-    }
-
-    /**
-     * 将前端传回的带类型信息的扁平数据构建为 JSONObject 对象
-     *
-     * @param dataList 前端传回的带类型信息的数据列表
-     * @return 构建好的 JSONObject
-     * @throws IllegalArgumentException 当 dataList 为 null 时抛出
-     */
-    public static JSONObject buildJsonObjectWithType(List<Map<String, Object>> dataList) {
-        String json = buildJsonWithType(dataList);
-        return JSON.parseObject(json);
     }
 
     /**
@@ -238,16 +223,40 @@ public class InputDataBuilder {
      *   <li>double / Double / float / Float → 转换为浮点数（Double）</li>
      *   <li>boolean / Boolean → 转换为布尔值（Boolean）</li>
      *   <li>null / Null → 返回 null</li>
+     *   <li>object / Object / json / map → 将 JSON 字符串解析为 JSONObject</li>
+     *   <li>array / Array / list / List → 将 JSON 字符串解析为 JSONArray</li>
      * </ul>
      *
-     * @param valueStr 字符串形式的值
-     * @param type     类型字符串
+     * @param value 前端传回的值（可能是字符串，也可能是 JSON 反序列化后的对象）
+     * @param type  类型字符串
      * @return 转换后的 Java 对象
      */
     private static Object convertValueByType(String valueStr, String type) {
+        return convertValueByType((Object) valueStr, type);
+    }
+
+    /**
+     * 根据类型字符串将值转换为对应的 Java 对象
+     *
+     * <p>支持的类型映射：
+     * <ul>
+     *   <li>string / String → 保持原字符串</li>
+     *   <li>number / Number / int / Integer / long / Long → 转换为整数（Integer 或 Long）</li>
+     *   <li>double / Double / float / Float → 转换为浮点数（Double）</li>
+     *   <li>boolean / Boolean → 转换为布尔值（Boolean）</li>
+     *   <li>null / Null → 返回 null</li>
+     *   <li>object / Object / json / map → 将 JSON 字符串解析为 JSONObject</li>
+     *   <li>array / Array / list / List → 将 JSON 字符串解析为 JSONArray</li>
+     * </ul>
+     *
+     * @param value 前端传回的值（可能是字符串，也可能是 JSON 反序列化后的对象）
+     * @param type  类型字符串
+     * @return 转换后的 Java 对象
+     */
+    private static Object convertValueByType(Object value, String type) {
         if (type == null || type.trim().isEmpty()) {
-            // 如果没有指定类型，默认作为字符串处理
-            return valueStr;
+            // 如果没有指定类型，保持原始值
+            return value;
         }
 
         String typeLower = type.toLowerCase().trim();
@@ -255,65 +264,125 @@ public class InputDataBuilder {
         switch (typeLower) {
             case "string":
                 // 字符串类型，直接返回
-                return valueStr;
+                return value;
+
+            case "object":
+            case "json":
+            case "map":
+                // 对象类型：前端直接输入的 JSON 字符串，解析为 JSONObject
+                if (value == null) {
+                    return null;
+                }
+                if (value instanceof Map) {
+                    return value;
+                }
+                String objJson = value.toString().trim();
+                if (objJson.isEmpty()) {
+                    return null;
+                }
+                try {
+                    return JSON.parseObject(objJson);
+                } catch (Exception e) {
+                    logger.warn("无法将值 '{}' 解析为对象类型，返回 null", objJson);
+                    return null;
+                }
+
+            case "array":
+            case "list":
+                // 数组类型：前端直接输入的 JSON 字符串，解析为 JSONArray
+                if (value == null) {
+                    return null;
+                }
+                if (value instanceof List) {
+                    return value;
+                }
+                String arrJson = value.toString().trim();
+                if (arrJson.isEmpty()) {
+                    return null;
+                }
+                try {
+                    return JSON.parseArray(arrJson);
+                } catch (Exception e) {
+                    logger.warn("无法将值 '{}' 解析为数组类型，返回 null", arrJson);
+                    return null;
+                }
 
             case "number":
             case "int":
             case "integer":
                 // 整数类型
-                if (valueStr == null || valueStr.trim().isEmpty()) {
+                if (value == null) {
+                    return null;
+                }
+                if (value instanceof Number) {
+                    return ((Number) value).longValue();
+                }
+                String numStr = value.toString().trim();
+                if (numStr.isEmpty()) {
                     return null;
                 }
                 try {
                     // 先尝试解析为 int
-                    return Integer.parseInt(valueStr.trim());
+                    return Integer.parseInt(numStr);
                 } catch (NumberFormatException e) {
                     try {
                         // 超出 int 范围，解析为 long
-                        return Long.parseLong(valueStr.trim());
+                        return Long.parseLong(numStr);
                     } catch (NumberFormatException e2) {
-                        logger.warn("无法将值 '{}' 转换为整数类型，返回 null", valueStr);
+                        logger.warn("无法将值 '{}' 转换为整数类型，返回 null", numStr);
                         return null;
                     }
                 }
 
             case "long":
                 // 长整数类型
-                if (valueStr == null || valueStr.trim().isEmpty()) {
+                if (value == null) {
                     return null;
                 }
+                if (value instanceof Number) {
+                    return ((Number) value).longValue();
+                }
                 try {
-                    return Long.parseLong(valueStr.trim());
+                    return Long.parseLong(value.toString().trim());
                 } catch (NumberFormatException e) {
-                    logger.warn("无法将值 '{}' 转换为 long 类型，返回 null", valueStr);
+                    logger.warn("无法将值 '{}' 转换为 long 类型，返回 null", value);
                     return null;
                 }
 
             case "double":
             case "float":
                 // 浮点数类型
-                if (valueStr == null || valueStr.trim().isEmpty()) {
+                if (value == null) {
                     return null;
                 }
+                if (value instanceof Number) {
+                    return ((Number) value).doubleValue();
+                }
                 try {
-                    return Double.parseDouble(valueStr.trim());
+                    return Double.parseDouble(value.toString().trim());
                 } catch (NumberFormatException e) {
-                    logger.warn("无法将值 '{}' 转换为浮点数类型，返回 null", valueStr);
+                    logger.warn("无法将值 '{}' 转换为浮点数类型，返回 null", value);
                     return null;
                 }
 
             case "boolean":
                 // 布尔类型
-                if (valueStr == null || valueStr.trim().isEmpty()) {
+                if (value == null) {
                     return null;
                 }
-                String boolStr = valueStr.trim().toLowerCase();
+                if (value instanceof Boolean) {
+                    return value;
+                }
+                String boolStr = value.toString().trim().toLowerCase();
+                if (boolStr.isEmpty()) {
+                    return null;
+                }
                 if ("true".equals(boolStr) || "1".equals(boolStr) || "yes".equals(boolStr)) {
                     return true;
                 } else if ("false".equals(boolStr) || "0".equals(boolStr) || "no".equals(boolStr)) {
                     return false;
                 } else {
-                    logger.warn("无法将值 '{}' 转换为布尔类型，返回 null", valueStr);
+                    logger.warn("无法将值 '{}' 转换为布尔类型，返回 null", value);
                     return null;
                 }
 
@@ -323,8 +392,8 @@ public class InputDataBuilder {
 
             default:
                 // 未知类型，默认作为字符串处理
-                logger.warn("未知的类型 '{}'，将值 '{}' 作为字符串处理", type, valueStr);
-                return valueStr;
+                logger.warn("未知的类型 '{}'，将值 '{}' 作为字符串处理", type, value);
+                return value;
         }
     }
 
@@ -363,40 +432,145 @@ public class InputDataBuilder {
         // 例如 "A[0].B" → ["A[0]", "B"]
         String[] segments = path.split("\\.");
 
-        Object current = root;
+        setNestedValue(root, segments, 0, value, rawPath);
+    }
 
-        for (int i = 0; i < segments.length; i++) {
-            String segment = segments[i];
-            boolean isLast = (i == segments.length - 1);
+    /**
+     * 递归设置嵌套值，支持数组通配符 {@code [*]}。
+     *
+     * <p>通配符语义：把后续路径应用到目标数组的每一个元素；如果数组为空，则先创建一个元素承载值。</p>
+     */
+    private static void setNestedValue(Object current, String[] segments, int index,
+                                       Object value, String rawPath) {
+        if (index >= segments.length) {
+            return;
+        }
 
-            // 检查是否包含数组索引，例如 "A[0]" 或 "A[0][1]"
-            if (segment.contains("[")) {
-                current = handleArraySegment(current, segment, isLast, value, rawPath);
+        String segment = segments[index];
+        boolean isLast = (index == segments.length - 1);
+
+        // 处理数组通配符段，例如 "A[*]"
+        if (segment.contains("[*]")) {
+            handleWildcardSegment(current, segment, segments, index, isLast, value, rawPath);
+            return;
+        }
+
+        // 处理数字索引的数组段，例如 "A[0]" 或 "A[0][1]"
+        if (segment.contains("[")) {
+            Object next = handleArraySegment(current, segment, isLast, value, rawPath);
+            if (!isLast) {
+                setNestedValue(next, segments, index + 1, value, rawPath);
+            }
+            return;
+        }
+
+        // 普通对象属性
+        JSONObject jsonObj;
+        if (current instanceof JSONObject) {
+            jsonObj = (JSONObject) current;
+        } else if (current instanceof JSONArray) {
+            // 当前对象是数组，说明上层通配符遍历到的元素本身就是数组：
+            // 把当前段当作数组元素下标（0）继续向下设置，保证路径仍能落地。
+            JSONArray currentArray = (JSONArray) current;
+            int targetIndex = 0;
+            if (!segment.isEmpty() && segment.chars().allMatch(Character::isDigit)) {
+                targetIndex = Integer.parseInt(segment);
+            }
+            while (currentArray.size() <= targetIndex) {
+                currentArray.add(null);
+            }
+            Object element = currentArray.get(targetIndex);
+            if (isLast) {
+                currentArray.set(targetIndex, value);
+                return;
+            }
+            if (element == null) {
+                element = new JSONObject(new LinkedHashMap<>());
+                currentArray.set(targetIndex, element);
+            }
+            setNestedValue(element, segments, index + 1, value, rawPath);
+            return;
+        } else {
+            logger.warn("无法在非对象/数组的节点上设置子路径：{}", rawPath);
+            return;
+        }
+
+        if (isLast) {
+            jsonObj.put(segment, value);
+            return;
+        }
+
+        Object child = jsonObj.get(segment);
+        if (child == null) {
+            // 当前段始终先按对象处理；下一段若是数组索引/通配符，
+            // 会由 handleArraySegment / handleWildcardSegment 在对象内创建数组字段。
+            child = new JSONObject(new LinkedHashMap<>());
+            jsonObj.put(segment, child);
+        }
+        setNestedValue(child, segments, index + 1, value, rawPath);
+    }
+
+    /**
+     * 处理带 {@code [*]} 通配符的数组段。
+     */
+    private static void handleWildcardSegment(Object current, String segment, String[] segments,
+                                              int index, boolean isLast, Object value, String rawPath) {
+        int bracketPos = segment.indexOf('[');
+        String key = bracketPos > 0 ? segment.substring(0, bracketPos) : null;
+        String indexPart = segment.substring(bracketPos);
+
+        JSONArray array;
+        if (key == null || key.isEmpty()) {
+            // 当前对象本身就是数组：A[*].B
+            if (current instanceof JSONArray) {
+                array = (JSONArray) current;
             } else {
-                // 普通对象属性
-                if (isLast) {
-                    // 最后一段，设置值
-                    ((JSONObject) current).put(segment, value);
-                } else {
-                    // 中间段，确保存在对应的 JSONObject
-                    JSONObject jsonObj = (JSONObject) current;
-                    Object next = jsonObj.get(segment);
-                    if (next == null) {
-                        // 检查下一段是否是数组索引，决定创建 JSONObject 还是 JSONArray
-                        if (segments[i + 1].contains("[")) {
-                            JSONArray newArray = new JSONArray();
-                            jsonObj.put(segment, newArray);
-                            current = newArray;
-                        } else {
-                            JSONObject newObj = new JSONObject(new LinkedHashMap<>());
-                            jsonObj.put(segment, newObj);
-                            current = newObj;
-                        }
-                    } else {
-                        current = next;
-                    }
+                logger.warn("通配符路径的当前节点不是数组，跳过：{}", rawPath);
+                return;
+            }
+        } else {
+            if (!(current instanceof JSONObject)) {
+                logger.warn("通配符路径的父节点不是对象，跳过：{}", rawPath);
+                return;
+            }
+            JSONObject parentObj = (JSONObject) current;
+            Object arrayObj = parentObj.get(key);
+            if (arrayObj == null) {
+                array = new JSONArray();
+                parentObj.put(key, array);
+            } else if (arrayObj instanceof JSONArray) {
+                array = (JSONArray) arrayObj;
+            } else {
+                logger.warn("通配符路径的目标不是数组，跳过：{}", rawPath);
+                return;
+            }
+        }
+
+        boolean hasRemaining = index + 1 < segments.length;
+
+        // 通配符是最后一段：直接把值设置到数组的所有元素
+        if (isLast || !hasRemaining) {
+            if (array.isEmpty()) {
+                array.add(value);
+            } else {
+                for (int i = 0; i < array.size(); i++) {
+                    array.set(i, value);
                 }
             }
+            return;
+        }
+
+        // 还有更深层路径：对数组每个元素递归设置剩余路径
+        if (array.isEmpty()) {
+            array.add(new JSONObject(new LinkedHashMap<>()));
+        }
+        for (int i = 0; i < array.size(); i++) {
+            Object element = array.get(i);
+            if (element == null) {
+                element = new JSONObject(new LinkedHashMap<>());
+                array.set(i, element);
+            }
+            setNestedValue(element, segments, index + 1, value, rawPath);
         }
     }
 

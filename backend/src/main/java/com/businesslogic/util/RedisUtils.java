@@ -4,8 +4,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.SessionCallback;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -119,6 +121,27 @@ public class RedisUtils {
             connection.exec();
             return null;
         }, false);
+    }
+
+    /**
+     * 在 Redis 事务中执行多个 RedisTemplate 操作。
+     *
+     * <p>与 {@link #executeInTransaction(List)} 等价，但操作直接使用 RedisTemplate 的高层 API
+     * （opsForValue/opsForHash 等），key/value 自动走模板配置的序列化器，不再手工拼 byte[]。</p>
+     */
+    public void executeInTemplateTransaction(List<Consumer<RedisOperations<String, String>>> operations) {
+        redisTemplate.execute(new SessionCallback<List<Object>>() {
+            @Override
+            public <K, V> List<Object> execute(RedisOperations<K, V> ops) {
+                ops.multi();
+                @SuppressWarnings("unchecked")
+                RedisOperations<String, String> stringOps = (RedisOperations<String, String>) ops;
+                for (Consumer<RedisOperations<String, String>> operation : operations) {
+                    operation.accept(stringOps);
+                }
+                return ops.exec();
+            }
+        });
     }
 
     /**

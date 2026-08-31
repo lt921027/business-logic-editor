@@ -27,7 +27,7 @@ public class AviatorExpressionGenerator {
     }
 
     private String generateStepExpression(LogicStepDTO step, int stepNum) {
-        String category = getFirstElement(step.getFunctionCategory());
+        String category = step.getFunctionCategory();
 
         if ("direct".equals(category)) {
             return generateDirectMapping(step, stepNum);
@@ -83,7 +83,7 @@ public class AviatorExpressionGenerator {
 
         if (operands == null || operands.isEmpty()) {
             // 无操作数时返回该分类的中性兜底值，避免生成 `let x = ` 这类非法脚本
-            String category = getFirstElement(calcStep.getFunctionCategory());
+            String category = calcStep.getFunctionCategory();
             if ("string".equals(category)) {
                 return "''";
             } else if ("date".equals(category)) {
@@ -92,7 +92,7 @@ public class AviatorExpressionGenerator {
             return "0";
         }
 
-        String category = getFirstElement(calcStep.getFunctionCategory());
+        String category = calcStep.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands,null,null);
@@ -246,15 +246,15 @@ public class AviatorExpressionGenerator {
         String loopVar = "item";
         String convertedCondition = generateFilterConditionInLoop(step.getFilterItems(), filterScope, loopVar);
 
-        boolean hasFilterLogic = step.getFilterLogic() != null && !step.getFilterLogic().isEmpty();
-        boolean hasReverseLogic = step.getReverseLogic() != null && !step.getReverseLogic().isEmpty();
+        boolean hasFilterLogics = step.getFilterLogics() != null && !step.getFilterLogics().isEmpty();
+        boolean hasReverseLogics = step.getReverseLogics() != null && !step.getReverseLogics().isEmpty();
 
-        if (hasFilterLogic) {
+        if (hasFilterLogics) {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
-                    scopeExpression, loopVar, step.getFilterLogic(), true, false);
-        } else if (hasReverseLogic) {
+                    scopeExpression, loopVar, step.getFilterLogics(), true, false);
+        } else if (hasReverseLogics) {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
-                    scopeExpression, loopVar, step.getReverseLogic(), true, true);
+                    scopeExpression, loopVar, step.getReverseLogics(), true, true);
         } else {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
                     scopeExpression, loopVar, null, false, false);
@@ -478,7 +478,7 @@ public class AviatorExpressionGenerator {
             return "false";
         }
 
-        String category = getFirstElement(item.getFunctionCategory());
+        String category = item.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands,null,null);
@@ -504,7 +504,7 @@ public class AviatorExpressionGenerator {
             return "false";
         }
 
-        String category = getFirstElement(item.getFunctionCategory());
+        String category = item.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands, filterScope, loopVar);
@@ -541,7 +541,7 @@ public class AviatorExpressionGenerator {
 
     private String generateFilterLogicExecution(FilterLogicDTO logic) {
         String type = logic.getType();
-        String value = logic.getValue();
+        String value = logic.getTypeValue();
 
         if ("count".equals(type)) {
             if ("all".equals(value)) {
@@ -563,7 +563,7 @@ public class AviatorExpressionGenerator {
 
     private String generateFilterLogicExecutionWithList(FilterLogicDTO logic, String listVar) {
         String type = logic.getType();
-        String value = logic.getValue();
+        String value = logic.getTypeValue();
 
         // 从完整路径中提取最终的字段        // 例如: "PH010R01[0].PH010RA1" "PH010RA1"
         // 例如: "amount" "amount"
@@ -738,10 +738,4 @@ public class AviatorExpressionGenerator {
                 .replace("\t", "\\t");
     }
 
-    private String getFirstElement(String[] array) {
-        if (array != null && array.length > 0) {
-            return array[0];
-        }
-        return "";
-    }
 }

@@ -208,6 +208,44 @@ backend/
 }
 ```
 
+### 7. 构建 inputData（表达式参数转 JSON）
+
+**POST** `/api/business-logic/build-input-data`
+
+前端把表达式的参数节点（jsonPath + value + jsonType）传回后端，后端还原成完整的
+嵌套 JSON 字符串，可直接作为 `inputData` 执行表达式。
+
+**请求体**：
+```json
+{
+  "expression": "def name = JsonPathUtil.readString(inputData, '$.user.name'); return name;",
+  "params": [
+    { "jsonPath": "$.amount", "value": "500", "jsonType": "number" },
+    { "jsonPath": "$.user", "value": "{\"name\":\"Tom\",\"age\":30}", "jsonType": "object" },
+    { "jsonPath": "$.tags", "value": "[\"a\",\"b\"]", "jsonType": "array" }
+  ]
+}
+```
+
+说明：
+- `jsonPath`：节点路径，支持 `A.B.C`、`$.A.B`、`arr[0].name` 等格式
+- `value`：用户输入的值；当 `jsonType` 为 `object` / `array` 时，直接输入 JSON 字符串，
+  后端会解析为对象/数组节点
+- `jsonType`：节点类型，支持 `string`、`number`、`boolean`、`null`、`object`、`array`
+- `expression` 可选，传了则返回 `result` 执行结果，方便调试
+
+**响应**：
+```json
+{
+  "code": 200,
+  "message": "inputData 构建成功",
+  "data": {
+    "inputData": "{\"amount\":500,\"user\":{\"name\":\"Tom\",\"age\":30},\"tags\":[\"a\",\"b\"]}",
+    "result": "Tom"
+  }
+}
+```
+
 ## AviatorScript表达式生成
 
 ### 支持的函数分类

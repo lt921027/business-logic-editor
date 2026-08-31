@@ -1,8 +1,12 @@
 package com.businesslogic.controller;
 
 import com.businesslogic.common.Result;
+import com.businesslogic.dto.BuildInputDataRequestDTO;
 import com.businesslogic.dto.BusinessLogicSaveDTO;
+import com.businesslogic.dto.JsonPathParamDTO;
+import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.service.BusinessLogicService;
+import com.businesslogic.util.InputDataBuilder;
 import com.businesslogic.vo.BusinessLogicVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -82,6 +86,58 @@ public class BusinessLogicController {
         Map<String, Object> response = new HashMap<>();
         response.put("result", result);
         return Result.success("执行成功", response);
+    }
+
+    /**
+     * 根据前端传回的表达式的参数列表构建 inputData JSON
+     *
+     * <p>前端传回参数列表，每个参数是一个 {@link JsonPathParamDTO} 对象，包含：</p>
+     * <ul>
+     *   <li>{@code jsonPath}：节点路径（如 "$.amount"、"user.name"、"items[0].price"）</li>
+     *   <li>{@code value}：用户输入的值；当 jsonType 为 object/array 时，直接输入 JSON 字符串</li>
+     *   <li>{@code jsonType}：节点类型（string、number、boolean、null、object、array）</li>
+     * </ul>
+     *
+     * <p>请求示例：</p>
+     * <pre>{@code
+     * {
+     *   "expression": "def name = JsonPathUtil.readString(inputData, '$.user.name'); return name;",
+     *   "params": [
+     *     {"jsonPath": "$.amount", "value": "500", "jsonType": "number"},
+     *     {"jsonPath": "$.user", "value": "{\"name\":\"Tom\",\"age\":30}", "jsonType": "object"}
+     *   ]
+     * }
+     * }</pre>
+     *
+     * @param request 请求体，包含 expression（可选）和 params（JsonPathParamDTO 参数列表）
+     * @return 构建好的 inputData JSON 字符串，若传了 expression 则附带执行结果
+     */
+    @PostMapping("/build-input-data")
+    public Result<Map<String, Object>> buildInputData(@RequestBody BuildInputDataRequestDTO request) {
+        List<JsonPathParamDTO> params = request.getParams();
+        if (params == null || params.isEmpty()) {
+            return Result.error("params 参数不能为空，需要传入参数列表");
+        }
+
+        String inputData = InputDataBuilder.buildInputDataJson(params);
+        logger.info("构建 inputData 完成：{}", inputData);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("inputData", inputData);
+
+        // 如果前端同时传回了表达式，直接执行并返回结果，方便调试
+        String expression = request.getExpression();
+        if (expression != null && !expression.trim().isEmpty()) {
+            try {
+                Object result = GroovyExecutor.execute(expression, inputData);
+                response.put("result", result);
+            } catch (Exception e) {
+                logger.error("执行表达式失败", e);
+                return Result.error("表达式执行失败: " + e.getMessage());
+            }
+        }
+
+        return Result.success("inputData 构建成功", response);
     }
 
     @PostMapping("/generate-expression")

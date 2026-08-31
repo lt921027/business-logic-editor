@@ -1,30 +1,39 @@
 package com.businesslogic.groovy.generator;
 
 import com.businesslogic.dto.*;
+import com.businesslogic.groovy.engine.GroovyExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * Groovy 表达式生成器
  *
- * <p>对应 Aviator 的 AviatorExpressionGenerator。
- * 将业务逻辑 DTO 转换为 Groovy 脚本，业务逻辑与 Aviator 版本完全一致。
+ * <p>将业务逻辑 DTO 转换为 Groovy 脚本。
  *
- * <p>语法差异对照：
+ * <p>自定义表达式语法到 Groovy 语法的转换约定：
  * <pre>
- *   Aviator                          → Groovy
- *   let x = expr;                    → def x = expr
- *   for item in list { }             → for (item in list) { }
- *   if (c) { } elsif { } else { }    → if (c) { } else if { } else { }
- *   nil                              → null
- *   seq.list()                       → []
- *   seq.add(list, item)              → list << item
- *   count(list)                      → list.size()
- *   count(list, lambda(x)->x!=nil)   → list.count { it != null }
+ *   let x = expr;                  → def x = expr
+ *   for item in list { }           → for (item in list) { }
+ *   if (c) { } elsif { } else { }  → if (c) { } else if { } else { }
+ *   nil                            → null
+ *   seq.list()                     → []
+ *   seq.add(list, item)            → list << item
+ *   count(list)                    → list.size()
+ *   count(list, lambda(x)->x!=nil) → list.count { it != null }
  *   reduce(list, 0, lambda(x,y)->..) → list.inject(0) { x, y -> .. }
  *   distinct(seq.map(list, lambda))  → list.collect { .. }.unique()
  *   string.contains(a, b)            → a.contains(b)
@@ -52,6 +61,14 @@ public class GroovyExpressionGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(GroovyExpressionGenerator.class);
 
+    /** 脚本头发布时间格式化 */
+    private static final DateTimeFormatter PUBLISH_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /** 匹配方法体中的默认值赋值：def result = ...; */
+    private static final Pattern DEFAULT_VALUE_PATTERN =
+            Pattern.compile("(?s)\\bdef\\s+result\\s*=\\s*(.*?);");
+
     /**
      * 根据业务逻辑 DTO 生成 Groovy 脚本。
      *
@@ -66,33 +83,620 @@ public class GroovyExpressionGenerator {
      * @return 可被 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#compile} 编译的 Groovy 源码
      */
     public String generate(BusinessLogicSaveDTO dto) {
-        StringBuilder expression = new StringBuilder();
+        StringBuilder stepsCode = new StringBuilder();
+        String lastVarName = null;
 
         List<LogicStepDTO> steps = dto.getLogicSteps();
-        String lastVarName = null;
 
         for (int i = 0; i < steps.size(); i++) {
             LogicStepDTO step = steps.get(i);
             String stepExpression = generateStepExpression(step, i + 1);
 
-            // 空步骤或未知 category 不生成任何变量：跳过，避免末尾 return 引用未定义的 stepN
+            // 空步骤或未知 category 不生成任何变量：跳过，避免末尾 result 引用未定义的 stepN
             if (stepExpression == null || stepExpression.trim().isEmpty()) {
                 continue;
             }
 
-            expression.append(stepExpression).append("\n");
+            stepsCode.append("        ").append(stepExpression.replace("\n", "\n        ")).append("\n");
 
-            // 记录最后一个步骤的输出变量名（用于末尾 return）
+            // 记录最后一个步骤的输出变量名（用于最后赋值给 result）
             lastVarName = step.getOutputVar() != null ? step.getOutputVar() : "step" + (i + 1);
         }
 
-        // 添加 return 语句，确保返回最后一步的结果
+        String methodName = sanitizeMethodName(dto.getName());
+
+        StringBuilder expression = new StringBuilder();
+        expression.append("def ").append(methodName).append("() {\n");
+        expression.append("    def result = ")
+                .append(resolveDefaultValueExpression(dto.getDefaultValue(), dto.getReturnType()))
+                .append(";\n");
+        expression.append("    try {\n");
+        expression.append(stepsCode);
         if (lastVarName != null) {
-            expression.append("return ").append(lastVarName).append("\n");
+            expression.append("        result = ").append(lastVarName).append(";\n");
         }
+        expression.append("    } catch (Exception e) {\n");
+        expression.append("        // 任一中间步骤异常：保持默认值，直接返回\n");
+        expression.append("        return result;\n");
+        expression.append("    }\n");
+        expression.append("    return result;\n");
+        expression.append("}\n");
+        // 当前执行器通过 script.run() 读取脚本顶层的 return 值，因此这里显式调用一次方法并返回其结果
+        expression.append("return ").append(methodName).append("()\n");
 
         logger.debug("生成的 Groovy 脚本:\n{}", expression);
         return expression.toString();
+    }
+
+    /**
+     * 将前端传入的裸默认值转换为 Groovy 表达式，并校验是否与返回值类型匹配。
+     *
+     * <p>默认值为空、返回值类型为空，或默认值与返回值类型不匹配时，直接抛
+     * IllegalArgumentException。</p>
+     *
+     * @param defaultValue 裸默认值（如 -99999、0、abc、true、[]、[:]）
+     * @param returnType   返回值类型（如 BigDecimal、Integer、String、Boolean、List、Date）
+     * @return 与返回值类型匹配的 Groovy 表达式
+     */
+    private String resolveDefaultValueExpression(String defaultValue, String returnType) {
+        if (defaultValue == null || defaultValue.trim().isEmpty()) {
+            throw new IllegalArgumentException("默认值不能为空");
+        }
+        if (returnType == null || returnType.trim().isEmpty()) {
+            throw new IllegalArgumentException("返回值类型不能为空");
+        }
+
+        String value = defaultValue.trim();
+        String type = returnType.trim().toLowerCase();
+
+        if (isNumericType(type)) {
+            return buildNumericDefaultValue(value, type);
+        }
+
+        switch (type) {
+            case "string":
+                return "'" + escapeStringLiteral(value) + "'";
+            case "boolean":
+                if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
+                    return value.toLowerCase();
+                }
+                throw new IllegalArgumentException("默认值[" + value + "]与返回值类型[" + returnType + "]不匹配");
+            case "list":
+                if (value.startsWith("[") && value.endsWith("]")) {
+                    return value;
+                }
+                throw new IllegalArgumentException("默认值[" + value + "]与返回值类型[" + returnType + "]不匹配");
+            case "map":
+                if ("[:]".equals(value) || (value.startsWith("[") && value.endsWith("]") && value.contains(":"))) {
+                    return value;
+                }
+                throw new IllegalArgumentException("默认值[" + value + "]与返回值类型[" + returnType + "]不匹配");
+            case "date":
+            case "localdate":
+            case "localdatetime":
+                return "'" + escapeStringLiteral(value) + "'";
+            default:
+                return value;
+        }
+    }
+
+    /**
+     * 构建数值类型默认值表达式，并校验裸值是否为合法数值。
+     */
+    private String buildNumericDefaultValue(String value, String type) {
+        String wrapper;
+        boolean decimal;
+
+        switch (type) {
+            case "bigdecimal": wrapper = "BigDecimal"; decimal = true; break;
+            case "double":      wrapper = "Double";     decimal = true; break;
+            case "float":       wrapper = "Float";      decimal = true; break;
+            case "integer":     wrapper = "Integer";    decimal = false; break;
+            case "long":        wrapper = "Long";       decimal = false; break;
+            case "short":       wrapper = "Short";      decimal = false; break;
+            case "byte":        wrapper = "Byte";       decimal = false; break;
+            default:            wrapper = "BigDecimal"; decimal = true; break;
+        }
+
+        boolean valid = decimal
+                ? value.matches("[+-]?(\\d+(\\.\\d*)?|\\.\\d+)")
+                : value.matches("[+-]?\\d+");
+        if (!valid) {
+            throw new IllegalArgumentException("默认值[" + value + "]与返回值类型[" + type + "]不匹配");
+        }
+        return wrapper + ".valueOf(" + value + ")";
+    }
+
+    /**
+     * 是否数值类型。
+     */
+    private boolean isNumericType(String type) {
+        return "bigdecimal".equals(type)
+                || "integer".equals(type)
+                || "long".equals(type)
+                || "short".equals(type)
+                || "byte".equals(type)
+                || "double".equals(type)
+                || "float".equals(type);
+    }
+
+    /**
+     * 将特征名称转换为合法的 Groovy 方法名。
+     *
+     * <p>仅保留字母、数字和下划线；首字符若不是字母或下划线则前缀 "_"；
+     * 名称为空或清洗后为空时回退为 "feature"。
+     */
+    private String sanitizeMethodName(String name) {
+        if (name == null) {
+            return "feature";
+        }
+        String cleaned = name.replaceAll("[^A-Za-z0-9_]", "");
+        if (cleaned.isEmpty()) {
+            return "feature";
+        }
+        char first = cleaned.charAt(0);
+        if (!Character.isLetter(first) && first != '_') {
+            cleaned = "_" + cleaned;
+        }
+        return cleaned;
+    }
+
+    /**
+     * 将多个特征的表达式合并为一个完整的交易码级源报文表达式。
+     *
+     * <p>每个特征表达式必须是独立的 Groovy 方法定义（即 {@link #generate} 生成的单特征脚本），
+     * 合并器会：</p>
+     * <ol>
+     *   <li>从表达式中提取方法名（def xxx()）；</li>
+     *   <li>提取 def xxx() 方法定义块（方法体按花括号配对），丢弃方法块之外的前后内容
+     *       （含末尾的 return xxx() 调用，合并脚本统一在末尾返回 Map）；</li>
+     *   <li>按特征顺序拼接所有方法定义；</li>
+     *   <li>追加统一调度段，按特征编码调用各方法并放入 LinkedHashMap 返回。</li>
+     * </ol>
+     *
+     * <p>为何由合并器统一返回 Map：执行器通过 script.run() 取顶层返回值，
+     * 合并脚本顶层 return 一个 Map&lt;featureCode, value&gt;，调用方一次拿到全部特征结果。</p>
+     *
+     * @param features 特征列表（特征编码 + 单特征 Groovy 表达式），列表顺序即返回 Map 的字段顺序
+     * @return 可被 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#compile} 编译的交易码级 Groovy 源码
+     */
+    public String mergeFeatureExpressions(List<FeatureExpression> features) {
+        return mergeFeatureExpressions(features, null);
+    }
+
+    /**
+     * 将多个特征的表达式合并为一个完整的交易码级源报文表达式，并在脚本头写入发布元数据。
+     *
+     * <p>脚本头包含：交易码、发布版本号、发布时间、特征数量；
+     * 每个特征前标注默认值、返回值类型和该特征表达式源码的 MD5 hash，便于线上定位是哪次发布、哪个特征。</p>
+     *
+     * <p>默认值与返回值类型优先取 {@link FeatureExpression} 上显式传入的值；
+     * 未传时默认值从方法体中的 `def result = ...` 解析，返回值类型按默认值表达式推断。</p>
+     *
+     * <p>长度校验：合并过程中实时对照 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#getMaxScriptLength()}
+     * （与引擎编译时的限制保持一致），超过限制直接抛 IllegalArgumentException，避免发布编译不过的脚本。</p>
+     *
+     * <p>其余合并逻辑与 {@link #mergeFeatureExpressions(List)} 一致。</p>
+     *
+     * @param features 特征列表（特征编码 + 单特征 Groovy 表达式），列表顺序即返回 Map 的字段顺序
+     * @param meta     发布元数据（交易码/版本号/发布时间），可为 null，缺失字段在脚本头显示为 "-"
+     * @return 可被 {@link com.businesslogic.groovy.engine.GroovyExpressionEngine#compile} 编译的交易码级 Groovy 源码
+     */
+    public String mergeFeatureExpressions(List<FeatureExpression> features, MergeMeta meta) {
+        if (features == null || features.isEmpty()) {
+            return "return [:]";
+        }
+
+        // 与引擎编译时使用的限制保持一致：引擎配置变更（setMaxScriptLength）后，合并校验自动跟随
+        int maxScriptLength = GroovyExecutor.getEngine().getMaxScriptLength();
+
+        StringBuilder script = new StringBuilder();
+        script.append(buildHeader(meta, features.size()));
+
+        LinkedHashMap<String, String> methodNameByFeature = new LinkedHashMap<>();
+        Set<String> usedMethodNames = new HashSet<>();
+
+        for (FeatureExpression feature : features) {
+            String featureCode = feature.getFeatureCode();
+            String expression = feature.getExpression();
+
+            if (featureCode == null || featureCode.trim().isEmpty()) {
+                throw new IllegalArgumentException("特征编码不能为空");
+            }
+            if (methodNameByFeature.containsKey(featureCode)) {
+                throw new IllegalArgumentException("重复的特征编码: " + featureCode);
+            }
+
+            MethodBlock methodBlock = extractMethodBlock(expression);
+            String methodName = methodBlock.getMethodName();
+            if (!usedMethodNames.add(methodName)) {
+                throw new IllegalArgumentException(
+                        "特征方法名重复（请保证特征名称唯一）: " + methodName + "，特征编码: " + featureCode);
+            }
+
+            String defaultValue = feature.getDefaultValue() != null
+                    ? feature.getDefaultValue()
+                    : extractDefaultValue(methodBlock.getBody());
+            String returnType = feature.getReturnType() != null
+                    ? feature.getReturnType()
+                    : inferReturnType(defaultValue);
+
+            script.append("// ===== 特征: ").append(featureCode).append(" =====\n");
+            script.append("// 默认值: ").append(commentSafe(defaultValue)).append("\n");
+            script.append("// 返回值类型: ").append(commentSafe(returnType)).append("\n");
+            script.append("// 源码hash: ").append(md5(expression)).append("\n\n");
+            script.append(methodBlock.getBody()).append("\n\n");
+            ensureWithinScriptLengthLimit(script.length(), maxScriptLength, "超限特征: " + featureCode);
+            methodNameByFeature.put(featureCode, methodName);
+        }
+
+        script.append("return [\n");
+        for (Map.Entry<String, String> entry : methodNameByFeature.entrySet()) {
+            script.append("    '").append(escapeStringLiteral(entry.getKey()))
+                    .append("': ").append(entry.getValue()).append("(),\n");
+        }
+        script.append("]\n");
+        ensureWithinScriptLengthLimit(script.length(), maxScriptLength, null);
+
+        logger.debug("生成的交易码级 Groovy 脚本:\n{}", script);
+        return script.toString();
+    }
+
+    /**
+     * 校验合并脚本长度不超过引擎编译限制。
+     *
+     * @param currentLength   当前脚本长度
+     * @param maxScriptLength 引擎 maxScriptLength 限制
+     * @param detail          附加的定位信息（如超限特征），可为 null
+     */
+    private void ensureWithinScriptLengthLimit(int currentLength, int maxScriptLength, String detail) {
+        if (currentLength > maxScriptLength) {
+            throw new IllegalArgumentException("合并后的交易码脚本长度超限（" + currentLength
+                    + " > " + maxScriptLength + "，引擎 maxScriptLength 限制）"
+                    + (detail != null ? "，" + detail : ""));
+        }
+    }
+
+    /**
+     * 生成脚本头部元数据注释块。
+     */
+    private String buildHeader(MergeMeta meta, int featureCount) {
+        String txnCode = meta != null && meta.getTransactionCode() != null
+                ? commentSafe(meta.getTransactionCode()) : "-";
+        String version = meta != null && meta.getVersion() != null
+                ? String.valueOf(meta.getVersion()) : "-";
+        String publishTime = meta != null && meta.getPublishTime() != null
+                ? meta.getPublishTime().format(PUBLISH_TIME_FORMATTER) : "-";
+
+        return "// ============================================================\n"
+                + "// 交易码: " + txnCode + "\n"
+                + "// 发布版本号: " + version + "\n"
+                + "// 发布时间: " + publishTime + "\n"
+                + "// 特征数量: " + featureCount + "\n"
+                + "// ============================================================\n";
+    }
+
+    /**
+     * 计算特征表达式源码的 MD5（32 位小写十六进制）。
+     */
+    private String md5(String text) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] bytes = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(bytes.length * 2);
+            for (byte b : bytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("计算特征源码 hash 失败", e);
+        }
+    }
+
+    /**
+     * 将值中的换行/制表符替换为空格，避免破坏注释行。
+     */
+    private String commentSafe(String value) {
+        return value.replace("\r", " ").replace("\n", " ").replace("\t", " ");
+    }
+
+    /**
+     * 从方法体中解析默认值赋值表达式（def result = ...;），解析不到返回 "-"。
+     */
+    private String extractDefaultValue(String methodBody) {
+        Matcher matcher = DEFAULT_VALUE_PATTERN.matcher(methodBody);
+        if (matcher.find()) {
+            return matcher.group(1).trim();
+        }
+        return "-";
+    }
+
+    /**
+     * 按默认值表达式推断返回值类型；推断不出时返回 "动态(def)"。
+     * 业务侧若已知确切类型，可通过 {@link FeatureExpression#getReturnType()} 显式传入。
+     */
+    private String inferReturnType(String defaultValue) {
+        if (defaultValue == null || defaultValue.trim().isEmpty() || "-".equals(defaultValue.trim())) {
+            return "动态(def)";
+        }
+        String value = defaultValue.trim();
+        if (value.startsWith("BigDecimal")) {
+            return "BigDecimal";
+        }
+        if (value.startsWith("'") || value.startsWith("\"")) {
+            return "String";
+        }
+        if ("true".equals(value) || "false".equals(value)) {
+            return "Boolean";
+        }
+        if (value.startsWith("[")) {
+            return "List";
+        }
+        return "动态(def)";
+    }
+
+    /**
+     * 从特征表达式中提取方法定义块：从 def 方法名( 到方法体闭合 } 为止，丢弃其前后所有内容。
+     *
+     * <p>与之前“匹配末尾 return xxx() 再剥离”的方式相比，本方式不依赖表达式是否以
+     * return 调用结尾：带分号、尾部注释、尾部杂项代码都会被整体丢弃；方法体按花括号配对提取，
+     * 且扫描时会跳过行注释、块注释和字符串字面量（含三引号字符串），避免注释/字符串里的
+     * 花括号或 def 干扰判断。</p>
+     */
+    private MethodBlock extractMethodBlock(String expression) {
+        if (expression == null || expression.trim().isEmpty()) {
+            throw new IllegalArgumentException("特征表达式不能为空");
+        }
+
+        String code = expression;
+        int n = code.length();
+        String methodName = null;
+        int defStart = -1;
+        int braceDepth = 0;
+        boolean bodyStarted = false;
+        int bodyEnd = -1;
+
+        char quote = 0;
+        int quoteLen = 0;
+        boolean lineComment = false;
+        boolean blockComment = false;
+
+        int i = 0;
+        while (i < n) {
+            char c = code.charAt(i);
+            char next = i + 1 < n ? code.charAt(i + 1) : 0;
+
+            if (lineComment) {
+                if (c == '\n') {
+                    lineComment = false;
+                }
+                i++;
+                continue;
+            }
+            if (blockComment) {
+                if (c == '*' && next == '/') {
+                    blockComment = false;
+                    i += 2;
+                    continue;
+                }
+                i++;
+                continue;
+            }
+            if (quote != 0) {
+                if (quoteLen == 3) {
+                    if (c == quote && next == quote && i + 2 < n && code.charAt(i + 2) == quote) {
+                        quote = 0;
+                        quoteLen = 0;
+                        i += 3;
+                        continue;
+                    }
+                    i++;
+                    continue;
+                }
+                if (c == '\\') {
+                    i += 2;
+                    continue;
+                }
+                if (c == quote) {
+                    quote = 0;
+                    quoteLen = 0;
+                }
+                i++;
+                continue;
+            }
+            if (c == '/' && next == '/') {
+                lineComment = true;
+                i += 2;
+                continue;
+            }
+            if (c == '/' && next == '*') {
+                blockComment = true;
+                i += 2;
+                continue;
+            }
+            if (c == '\'' || c == '"') {
+                if (next == c && i + 2 < n && code.charAt(i + 2) == c) {
+                    quote = c;
+                    quoteLen = 3;
+                    i += 3;
+                    continue;
+                }
+                quote = c;
+                quoteLen = 1;
+                i++;
+                continue;
+            }
+
+            if (bodyStarted) {
+                if (c == '{') {
+                    braceDepth++;
+                } else if (c == '}') {
+                    braceDepth--;
+                    if (braceDepth == 0) {
+                        bodyEnd = i;
+                        break;
+                    }
+                }
+                i++;
+                continue;
+            }
+
+            if (methodName == null && isDefAt(code, i)) {
+                int j = i + 3;
+                while (j < n && Character.isWhitespace(code.charAt(j))) {
+                    j++;
+                }
+                int nameStart = j;
+                while (j < n && (Character.isLetterOrDigit(code.charAt(j)) || code.charAt(j) == '_')) {
+                    j++;
+                }
+                if (j > nameStart) {
+                    String candidate = code.substring(nameStart, j);
+                    int k = j;
+                    while (k < n && Character.isWhitespace(code.charAt(k))) {
+                        k++;
+                    }
+                    if (k < n && code.charAt(k) == '(') {
+                        methodName = candidate;
+                        defStart = i;
+                        i = k;
+                        continue;
+                    }
+                }
+            }
+
+            if (defStart >= 0 && c == '{') {
+                bodyStarted = true;
+                braceDepth = 1;
+            }
+            i++;
+        }
+
+        if (methodName == null) {
+            throw new IllegalArgumentException(
+                    "特征表达式不是合法的 Groovy 方法定义，无法提取方法名: " + abbreviate(expression));
+        }
+        if (bodyEnd < 0) {
+            throw new IllegalArgumentException("特征表达式方法体不完整（缺少闭合的 }）: " + methodName);
+        }
+
+        return new MethodBlock(methodName, code.substring(defStart, bodyEnd + 1).trim());
+    }
+
+    /**
+     * 判断下标 i 处是否为代码级的 "def" 关键字（前一个字符不是标识符字符，后一个字符是空白）。
+     */
+    private boolean isDefAt(String code, int i) {
+        if (i + 2 >= code.length()) {
+            return false;
+        }
+        if (code.charAt(i) != 'd' || code.charAt(i + 1) != 'e' || code.charAt(i + 2) != 'f') {
+            return false;
+        }
+        if (i > 0) {
+            char prev = code.charAt(i - 1);
+            if (Character.isLetterOrDigit(prev) || prev == '_' || prev == '$') {
+                return false;
+            }
+        }
+        return i + 3 < code.length() && Character.isWhitespace(code.charAt(i + 3));
+    }
+
+    /**
+     * 方法定义块：方法名 + 从 def 到方法体闭合 } 的完整代码。
+     */
+    private static class MethodBlock {
+
+        private final String methodName;
+        private final String body;
+
+        MethodBlock(String methodName, String body) {
+            this.methodName = methodName;
+            this.body = body;
+        }
+
+        String getMethodName() {
+            return methodName;
+        }
+
+        String getBody() {
+            return body;
+        }
+    }
+
+    /**
+     * 截断表达式用于错误提示，避免异常信息过长。
+     */
+    private String abbreviate(String text) {
+        String compact = text.trim().replaceAll("\\s+", " ");
+        return compact.length() > 80 ? compact.substring(0, 80) + "..." : compact;
+    }
+
+    /**
+     * 单个特征及其 Groovy 表达式（特征编码 + 单特征方法脚本）。
+     */
+    public static class FeatureExpression {
+
+        private final String featureCode;
+        private final String expression;
+        private final String defaultValue;
+        private final String returnType;
+
+        public FeatureExpression(String featureCode, String expression) {
+            this(featureCode, expression, null, null);
+        }
+
+        public FeatureExpression(String featureCode, String expression,
+                                 String defaultValue, String returnType) {
+            this.featureCode = featureCode;
+            this.expression = expression;
+            this.defaultValue = defaultValue;
+            this.returnType = returnType;
+        }
+
+        public String getFeatureCode() {
+            return featureCode;
+        }
+
+        public String getExpression() {
+            return expression;
+        }
+
+        public String getDefaultValue() {
+            return defaultValue;
+        }
+
+        public String getReturnType() {
+            return returnType;
+        }
+    }
+
+    /**
+     * 发布元数据：交易码 + 发布版本号 + 发布时间，用于写入合并脚本头。
+     */
+    public static class MergeMeta {
+
+        private final String transactionCode;
+        private final Long version;
+        private final LocalDateTime publishTime;
+
+        public MergeMeta(String transactionCode, Long version, LocalDateTime publishTime) {
+            this.transactionCode = transactionCode;
+            this.version = version;
+            this.publishTime = publishTime;
+        }
+
+        public String getTransactionCode() {
+            return transactionCode;
+        }
+
+        public Long getVersion() {
+            return version;
+        }
+
+        public LocalDateTime getPublishTime() {
+            return publishTime;
+        }
     }
 
     /**
@@ -107,7 +711,7 @@ public class GroovyExpressionGenerator {
      * @return 该步骤的 Groovy 代码片段
      */
     private String generateStepExpression(LogicStepDTO step, int stepNum) {
-        String category = getFirstElement(step.getFunctionCategory());
+        String category = step.getFunctionCategory();
 
         if ("direct".equals(category)) {
             return generateDirectMapping(step, stepNum);
@@ -127,8 +731,7 @@ public class GroovyExpressionGenerator {
     /**
      * 生成直接映射步骤：将输入 JSON 的某字段直接赋值给变量。
      *
-     * <p>对应 Aviator: `let step1 = input.field`。
-     * Groovy 形式：`def step1 = JsonPathUtil.read(inputData, '$.field')`。
+     * <p>生成形式：`def step1 = JsonPathUtil.read(inputData, '$.field')`。
      *
      * <p>关联：字段访问由 {@link #generateFieldExpression} 生成（统一走 JsonPathUtil）。
      */
@@ -143,8 +746,7 @@ public class GroovyExpressionGenerator {
     /**
      * 生成计算步骤：支持多个子计算步骤通过 AND/OR 组合。
      *
-     * <p>对应 Aviator: `let step1 = (子计算1) AND (子计算2)`。
-     * 多个子计算时每个加括号保证优先级，单个时不加括号。
+     * <p>多个子计算时每个加括号保证优先级，单个时不加括号。
      *
      * <p>关联：委托 {@link #generateCalculationStepExpression} 生成单个子计算；
      * 委托 {@link #convertLogicOperator} 转换 AND/OR → &&/||。
@@ -189,7 +791,7 @@ public class GroovyExpressionGenerator {
 
         if (operands == null || operands.isEmpty()) {
             // 无操作数时返回该分类的中性兜底值，避免生成 `def x = ` 这类非法脚本
-            String category = getFirstElement(calcStep.getFunctionCategory());
+            String category = calcStep.getFunctionCategory();
             if ("string".equals(category)) {
                 return "''";
             } else if ("date".equals(category)) {
@@ -198,7 +800,7 @@ public class GroovyExpressionGenerator {
             return "0";
         }
 
-        String category = getFirstElement(calcStep.getFunctionCategory());
+        String category = calcStep.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands, null, null);
@@ -216,7 +818,7 @@ public class GroovyExpressionGenerator {
     /**
      * 生成字符串函数调用的 Groovy 代码。
      *
-     * <p>支持的 function 与 Aviator→Groovy 映射：
+     * <p>支持的 function 到 Groovy 代码的映射：
      * <ul>
      *   <li>includes: string.contains(a, b) → a.contains(b)</li>
      *   <li>concat: seq.concat(a, b) → (a + b)</li>
@@ -274,7 +876,7 @@ public class GroovyExpressionGenerator {
     /**
      * 生成数值函数调用的 Groovy 代码。
      *
-     * <p>支持的 function 与 Aviator→Groovy 映射：
+     * <p>支持的 function 到 Groovy 代码的映射：
      * <ul>
      *   <li>arithmetic: 算术表达式（+,-,*,/,>,< 等），委托 {@link #generateArithmeticExpression}</li>
      *   <li>max: max(a, b) → Math.max(a, b)</li>
@@ -426,10 +1028,9 @@ public class GroovyExpressionGenerator {
 
     /**
      * 生成筛选步骤：遍历 filterScope 指定的列表，按 filterItems 条件筛选元素，
-     * 再按 filterLogic/reverseLogic 对筛选结果做聚合（count/sum/distinct）。
+     * 再按 filterLogics/reverseLogics 对筛选结果做聚合（count/sum/distinct）。
      *
-     * <p>对应 Aviator: `let step1 = count(filter(list, lambda(...)))`。
-     * Groovy 形式：`for (item in list) { if (condition) result << item }; step1 = result.count { ... }`。
+     * <p>生成形式：`for (item in list) { if (condition) result << item }; step1 = result.count { ... }`。
      *
      * <p>关联：委托 {@link #generateFilterCondition} 生成条件表达式；
      * 委托 {@link #generateFilterWithLoop} 生成循环体；
@@ -453,12 +1054,12 @@ public class GroovyExpressionGenerator {
     }
 
     /**
-     * 根据是否有 filterLogic / reverseLogic 决定循环体的生成方式。
+     * 根据是否有 filterLogics / reverseLogics 决定循环体的生成方式。
      *
      * <p>三种分支：
      * <ul>
-     *   <li>有 filterLogic：正向筛选 + 聚合（useTempList=true, reverseCondition=false）</li>
-     *   <li>有 reverseLogic：反向筛选 + 聚合（useTempList=true, reverseCondition=true）</li>
+     *   <li>有 filterLogics：正向筛选 + 聚合（useTempList=true, reverseCondition=false）</li>
+     *   <li>有 reverseLogics：反向筛选 + 聚合（useTempList=true, reverseCondition=true）</li>
      *   <li>两者都无：仅返回筛选后的列表，不聚合</li>
      * </ul>
      *
@@ -470,15 +1071,15 @@ public class GroovyExpressionGenerator {
         String loopVar = "item";
         String convertedCondition = generateFilterConditionInLoop(step.getFilterItems(), filterScope, loopVar);
 
-        boolean hasFilterLogic = step.getFilterLogic() != null && !step.getFilterLogic().isEmpty();
-        boolean hasReverseLogic = step.getReverseLogic() != null && !step.getReverseLogic().isEmpty();
+        boolean hasFilterLogics = step.getFilterLogics() != null && !step.getFilterLogics().isEmpty();
+        boolean hasReverseLogics = step.getReverseLogics() != null && !step.getReverseLogics().isEmpty();
 
-        if (hasFilterLogic) {
+        if (hasFilterLogics) {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
-                    scopeExpression, loopVar, step.getFilterLogic(), true, false);
-        } else if (hasReverseLogic) {
+                    scopeExpression, loopVar, step.getFilterLogics(), true, false);
+        } else if (hasReverseLogics) {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
-                    scopeExpression, loopVar, step.getReverseLogic(), true, true);
+                    scopeExpression, loopVar, step.getReverseLogics(), true, true);
         } else {
             return generateFilterWithCondition(stepNum, varName, convertedCondition,
                     scopeExpression, loopVar, null, false, false);
@@ -530,7 +1131,7 @@ public class GroovyExpressionGenerator {
 
     /**
      * 生成多个筛选执行操作的表达式（支持链式多操作）
-     * 执行流程与 Aviator 版本一致：
+     * 执行流程：
      * - 操作1: 输入 = 原始列表 输出 = 结果1
      * - 操作2: 输入 = 结果1 输出 = 结果2
      * - 操作N: 输入 = 结果(N-1) 输出 = 赋值给步骤变量
@@ -610,7 +1211,7 @@ public class GroovyExpressionGenerator {
      */
     private String generateFilterLogicExecutionWithList(FilterLogicDTO logic, String listVar) {
         String type = logic.getType();
-        String value = logic.getValue();
+        String value = logic.getTypeValue();
 
         String fieldName = extractFieldName(value);
 
@@ -654,12 +1255,12 @@ public class GroovyExpressionGenerator {
     // ==================== 自定义表达式 ====================
 
     /**
-     * 生成自定义表达式步骤：用户直接编写的 Aviator 表达式，需转为 Groovy 语法。
+     * 生成自定义表达式步骤：用户直接编写的自定义表达式，需转为 Groovy 语法。
      *
      * <p>处理步骤：
      * <ol>
      *   <li>去除 `input.` 前缀（Groovy 中字段通过 JsonPathUtil.read 访问，无需 input 前缀）</li>
-     *   <li>调用 {@link #convertAviatorSyntaxToGroovy} 做 nil→null 等语法转换</li>
+     *   <li>调用 {@link #convertAviatorSyntaxToGroovy} 做 nil→null 等旧式语法转换</li>
      * </ol>
      *
      * <p>关联：被 {@link #generateStepExpression} 在 category="custom" 时调用。
@@ -671,7 +1272,7 @@ public class GroovyExpressionGenerator {
         // 去除 input. 前缀
         expr = expr.replaceAll("input\\.", "");
 
-        // Aviator 语法转 Groovy 语法
+        // 旧式自定义表达式语法转 Groovy 语法
         expr = convertAviatorSyntaxToGroovy(expr);
 
         return "def " + varName + " = " + expr;
@@ -767,7 +1368,7 @@ public class GroovyExpressionGenerator {
      * <p>为何走 JsonPathUtil 而非直接 map['field']：inputData 是 JSON 字符串而非 Map，
      * 需要先解析再取值；JsonPathUtil 封装了 JSON 解析 + JsonPath 查询，支持嵌套路径如 `user.address.city`。
      *
-     * <p>为何去除 `input.` 前缀：前端传入的字段路径可能以 `input.` 开头（Aviator 风格），
+     * <p>为何去除 `input.` 前缀：前端传入的字段路径可能以 `input.` 开头（旧式写法），
      * Groovy 中统一用 `$.field` 的 JsonPath 语法，需先剥离 `input.`。
      *
      * <p>关联：被 {@link #generateDirectMapping} / {@link #generateOperandExpression} /
@@ -901,7 +1502,7 @@ public class GroovyExpressionGenerator {
             return "false";
         }
 
-        String category = getFirstElement(item.getFunctionCategory());
+        String category = item.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands, null, null);
@@ -930,7 +1531,7 @@ public class GroovyExpressionGenerator {
             return "false";
         }
 
-        String category = getFirstElement(item.getFunctionCategory());
+        String category = item.getFunctionCategory();
 
         if ("string".equals(category)) {
             return generateStringFunction(function, operands, filterScope, loopVar);
@@ -947,7 +1548,7 @@ public class GroovyExpressionGenerator {
 
     /**
      * 转换逻辑运算符
-     * Aviator: AND/OR → Groovy: &&/||
+     * AND/OR → &&/||
      * 其他运算符（+, -, *, /, >, <, ==, != 等）保持不变
      */
     private String convertLogicOperator(String op) {
@@ -964,7 +1565,7 @@ public class GroovyExpressionGenerator {
     }
 
     /**
-     * 将自定义表达式中的 Aviator 语法转为 Groovy 语法
+     * 将自定义表达式中的旧式语法转为 Groovy 语法
      * 处理 nil → null, let → def 等
      */
     private String convertAviatorSyntaxToGroovy(String expr) {
@@ -976,19 +1577,4 @@ public class GroovyExpressionGenerator {
         return expr;
     }
 
-    /**
-     * 安全获取数组首元素。
-     *
-     * <p>为何需要：DTO 中 functionCategory 是 String[]，但业务实际只用第一个元素作为分类标识。
-     * 此方法封装 null 检查，避免 NPE。
-     *
-     * <p>关联：被 {@link #generateStepExpression} / {@link #generateCalculationStepExpression} /
-     * {@link #generateSingleCondition} 等调用。
-     */
-    private String getFirstElement(String[] array) {
-        if (array != null && array.length > 0) {
-            return array[0];
-        }
-        return "";
-    }
 }

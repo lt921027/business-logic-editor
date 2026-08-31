@@ -1,6 +1,5 @@
 package com.businesslogic.dto;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -22,9 +21,9 @@ public class CalculationStepDTO {
 
     /**
      * 函数分类
-     * 该计算步骤使用的函数分类（数组形式，取第一个元素）
+     * 该计算步骤使用的函数分类
      * 可选值：number（数值处理）、string（字符串处理）、date（日期处理）     */
-    private String[] functionCategory;
+    private String functionCategory;
 
     /**
      * 具体函数名称
@@ -59,11 +58,11 @@ public class CalculationStepDTO {
         this.logicOperator = logicOperator;
     }
 
-    public String[] getFunctionCategory() {
+    public String getFunctionCategory() {
         return functionCategory;
     }
 
-    public void setFunctionCategory(String[] functionCategory) {
+    public void setFunctionCategory(String functionCategory) {
         this.functionCategory = functionCategory;
     }
 
@@ -92,7 +91,8 @@ public class CalculationStepDTO {
 
         if (id != null ? !id.equals(that.id) : that.id != null) return false;
         if (logicOperator != null ? !logicOperator.equals(that.logicOperator) : that.logicOperator != null) return false;
-        if (!Arrays.equals(functionCategory, that.functionCategory)) return false;
+        if (functionCategory != null ? !functionCategory.equals(that.functionCategory) : that.functionCategory != null)
+            return false;
         if (filterFunction != null ? !filterFunction.equals(that.filterFunction) : that.filterFunction != null) return false;
         return operands != null ? operands.equals(that.operands) : that.operands == null;
     }
@@ -101,7 +101,7 @@ public class CalculationStepDTO {
     public int hashCode() {
         int result = id != null ? id.hashCode() : 0;
         result = 31 * result + (logicOperator != null ? logicOperator.hashCode() : 0);
-        result = 31 * result + Arrays.hashCode(functionCategory);
+        result = 31 * result + (functionCategory != null ? functionCategory.hashCode() : 0);
         result = 31 * result + (filterFunction != null ? filterFunction.hashCode() : 0);
         result = 31 * result + (operands != null ? operands.hashCode() : 0);
         return result;
@@ -112,7 +112,7 @@ public class CalculationStepDTO {
         return "CalculationStepDTO{" +
                 "id=" + id +
                 ", logicOperator='" + logicOperator + '\'' +
-                ", functionCategory=" + Arrays.toString(functionCategory) +
+                ", functionCategory='" + functionCategory + '\'' +
                 ", filterFunction='" + filterFunction + '\'' +
                 ", operands=" + operands +
                 '}';

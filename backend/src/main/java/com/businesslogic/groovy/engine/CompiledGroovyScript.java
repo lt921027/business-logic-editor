@@ -7,8 +7,7 @@ import java.util.Objects;
 /**
  * 编译后的 Groovy 脚本包装类
  *
- * <p>对应 Aviator 的 com.googlecode.aviator.Expression。
- * 内部持有编译后的 Script Class 和原始源码。
+ * <p>内部持有编译后的 Script Class 和原始源码。
  *
  * <p>由于 Groovy 编译后的 Class 无法被标准 Java 序列化，
  * 序列化/反序列化通过源码字符串实现（存源码 → 重新编译）。

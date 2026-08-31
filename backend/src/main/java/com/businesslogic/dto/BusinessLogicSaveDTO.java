@@ -31,6 +31,20 @@ public class BusinessLogicSaveDTO {
     private String jsonInput;
 
     /**
+     * 默认值
+     * 特征计算异常或未命中时返回的兜底值表达式，例如 BigDecimal.valueOf(-99999)、0、''、false、[]。
+     * 为空时由返回值类型（returnType）推导默认值。
+     */
+    private String defaultValue;
+
+    /**
+     * 返回值类型
+     * 特征结果的类型标识，例如 BigDecimal、Integer、Long、Double、String、Boolean、List、Map、Date。
+     * 默认值为空时用于推导兜底默认值。
+     */
+    private String returnType;
+
+    /**
      * 业务逻辑步骤列表
      * 按执行顺序存储所有业务逻辑步骤，每个步骤是一LogicStepDTO 对象
      * 表达式生成器会遍历该列表，生成完整的 Aviator 表达     * 限制：最多支5 个步     */
@@ -60,6 +74,22 @@ public class BusinessLogicSaveDTO {
         this.jsonInput = jsonInput;
     }
 
+    public String getDefaultValue() {
+        return defaultValue;
+    }
+
+    public void setDefaultValue(String defaultValue) {
+        this.defaultValue = defaultValue;
+    }
+
+    public String getReturnType() {
+        return returnType;
+    }
+
+    public void setReturnType(String returnType) {
+        this.returnType = returnType;
+    }
+
     public List<LogicStepDTO> getLogicSteps() {
         return logicSteps;
     }
@@ -78,6 +108,8 @@ public class BusinessLogicSaveDTO {
         if (name != null ? !name.equals(that.name) : that.name != null) return false;
         if (description != null ? !description.equals(that.description) : that.description != null) return false;
         if (jsonInput != null ? !jsonInput.equals(that.jsonInput) : that.jsonInput != null) return false;
+        if (defaultValue != null ? !defaultValue.equals(that.defaultValue) : that.defaultValue != null) return false;
+        if (returnType != null ? !returnType.equals(that.returnType) : that.returnType != null) return false;
         return logicSteps != null ? logicSteps.equals(that.logicSteps) : that.logicSteps == null;
     }
 
@@ -86,6 +118,8 @@ public class BusinessLogicSaveDTO {
         int result = name != null ? name.hashCode() : 0;
         result = 31 * result + (description != null ? description.hashCode() : 0);
         result = 31 * result + (jsonInput != null ? jsonInput.hashCode() : 0);
+        result = 31 * result + (defaultValue != null ? defaultValue.hashCode() : 0);
+        result = 31 * result + (returnType != null ? returnType.hashCode() : 0);
         result = 31 * result + (logicSteps != null ? logicSteps.hashCode() : 0);
         return result;
     }
@@ -96,6 +130,8 @@ public class BusinessLogicSaveDTO {
                 "name='" + name + '\'' +
                 ", description='" + description + '\'' +
                 ", jsonInput='" + jsonInput + '\'' +
+                ", defaultValue='" + defaultValue + '\'' +
+                ", returnType='" + returnType + '\'' +
                 ", logicSteps=" + logicSteps +
                 '}';
     }

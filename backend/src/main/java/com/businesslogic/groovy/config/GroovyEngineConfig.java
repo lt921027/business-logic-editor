@@ -11,8 +11,6 @@ import org.springframework.context.annotation.Configuration;
 /**
  * Groovy 引擎配置类
  *
- * <p>对应 Aviator 的 HotLoadConfig，Spring Boot 自动配置。
- *
  * <p>负责：
  * <ul>
  *   <li>暴露 {@link GroovyExpressionEngine} 单例 Bean（与 {@link GroovyExecutor#getEngine()} 共享同一实例）</li>

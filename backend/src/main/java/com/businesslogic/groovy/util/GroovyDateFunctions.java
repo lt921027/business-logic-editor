@@ -8,10 +8,8 @@ import java.util.Date;
 /**
  * Groovy 脚本日期工具类
  *
- * <p>提供 Aviator 内置 date.* 函数的等价实现，
- * 供 Groovy 脚本通过 GroovyDateFunctions.xxx() 调用。
- *
- * <p>对应 Aviator 的 date.diff_months、date.before、date.after 等内置函数。
+ * <p>提供 Groovy 脚本可用的日期计算与格式化函数，
+ * 通过 GroovyDateFunctions.xxx() 调用。
  *
  * <p>关联体系：
  * <ul>
@@ -27,13 +25,13 @@ import java.util.Date;
  */
 public class GroovyDateFunctions {
 
-    /** 默认日期格式（与 Aviator DateFormatUtil 对齐） */
+    /** 默认日期格式 */
     private static final String DEFAULT_FORMAT = "yyyy-MM-dd";
 
     /**
      * 计算两个日期之间的月数差（按自然月，非 30 天近似）。
      *
-     * <p>对应 Aviator: date.diff_months(a, b) → b - a 的月数。
+     * <p>计算 b - a 的月数。
      *
      * <p>为何基于 Calendar 字段相减而非用 Duration：业务定义"月数差"指自然月跨度
      * （如 2024-01-31 → 2024-02-01 算 1 个月），用 Calendar.MONTH 差值最贴合业务语义。
@@ -59,7 +57,7 @@ public class GroovyDateFunctions {
     /**
      * 计算两个日期之间的天数差（24 小时为一个整天的截断除法）。
      *
-     * <p>对应 Aviator: date.diff_days(a, b) → b - a 的天数。
+     * <p>计算 b - a 的天数。
      *
      * <p>关联：被 {@link com.businesslogic.groovy.generator.GroovyExpressionGenerator} 中
      * `days_between` 函数生成的脚本调用。
@@ -77,7 +75,7 @@ public class GroovyDateFunctions {
     /**
      * 计算两个日期之间的年数差（仅按 Calendar.YEAR 字段相减，不按 365 天近似）。
      *
-     * <p>对应 Aviator: date.diff_years(a, b) → b - a 的年数。
+     * <p>计算 b - a 的年数。
      *
      * <p>关联：被 {@link com.businesslogic.groovy.generator.GroovyExpressionGenerator} 中
      * `years_between` 函数生成的脚本调用。
@@ -98,7 +96,7 @@ public class GroovyDateFunctions {
     /**
      * 判断 date1 是否严格在 date2 之前。
      *
-     * <p>对应 Aviator: date.before(a, b)。
+     * <p>判断 date1 是否严格在 date2 之前。
      *
      * <p>为何 null 返回 false：业务场景中 null 通常表示"未知"，不能断言先后关系，
      * 返回 false 让上层 if 分支统一走"不满足条件"路径，避免 NPE。
@@ -115,7 +113,7 @@ public class GroovyDateFunctions {
     /**
      * 判断 date1 是否严格在 date2 之后。
      *
-     * <p>对应 Aviator: date.after(a, b)。
+     * <p>判断 date1 是否严格在 date2 之后。
      *
      * <p>null 行为与 {@link #before} 一致，返回 false。
      */
@@ -131,7 +129,7 @@ public class GroovyDateFunctions {
     /**
      * 判断两个日期是否相等（精确到毫秒）。
      *
-     * <p>对应 Aviator: date.equal(a, b)。
+     * <p>判断两个日期是否相等。
      *
      * <p>为何 null == null 返回 true：与 Java Objects.equals 语义一致，
      * 简化业务脚本中"两值都缺省时视为相等"的判断。
@@ -193,7 +191,7 @@ public class GroovyDateFunctions {
     /**
      * 格式化日期为默认格式字符串（yyyy-MM-dd）。
      *
-     * <p>对应 Aviator: DateFormatUtil.format(date)。
+     * <p>格式化日期为默认格式字符串。
      *
      * <p>关联：委托 {@link #format(Object, String)}，传 DEFAULT_FORMAT。
      */

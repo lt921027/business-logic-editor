@@ -11,8 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Groovy 表达式缓存服务
  *
- * <p>对应 Aviator 的 ExpressionCache。
- * 缓存预编译的 Groovy 脚本，按业务逻辑 ID 索引。
+ * <p>缓存预编译的 Groovy 脚本，按业务逻辑 ID 索引。
  *
  * <p>关联体系：
  * <ul>

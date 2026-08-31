@@ -1883,12 +1883,12 @@
                     </div>
                     
                     <!-- 满足条件时执行模块（只在有数据时显示） -->
-                  <div v-if="step.filterLogic && step.filterLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #2193b0;">
+                  <div v-if="step.filterLogics && step.filterLogics.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #2193b0;">
                     <div class="filter-actions">
                       <h4 style="margin: 0; color: #2193b0; display: inline-block;">满足条件时执行</h4>
                     </div>
                     
-                    <div v-for="(logic, logicIndex) in step.filterLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #2193b0;">
+                    <div v-for="(logic, logicIndex) in step.filterLogics" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #2193b0;">
                       <div class="filter-condition-header">
                         <div class="logic-operator" style="max-width: 200px;">
                           <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
@@ -2012,12 +2012,12 @@
                   </div>
                   
                   <!-- 条件不符时执行模块（只在有数据时显示） -->
-                  <div v-if="step.reverseLogic && step.reverseLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #f45c43;">
+                  <div v-if="step.reverseLogics && step.reverseLogics.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #f45c43;">
                     <div class="filter-actions">
                       <h4 style="margin: 0; color: #f45c43; display: inline-block;">条件不符时执行</h4>
                     </div>
                     
-                    <div v-for="(logic, logicIndex) in step.reverseLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #f45c43;">
+                    <div v-for="(logic, logicIndex) in step.reverseLogics" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #f45c43;">
                       <div class="filter-condition-header">
                         <div class="logic-operator" style="max-width: 200px;">
                           <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
@@ -2239,12 +2239,12 @@
                 </div>
                 
                 <!-- 满足条件时执行预览 -->
-                <div v-if="step.filterLogic && step.filterLogic.length > 0" class="preview-execution-logic filter">
+                <div v-if="step.filterLogics && step.filterLogics.length > 0" class="preview-execution-logic filter">
                   <div class="preview-execution-header filter">
                     <span class="preview-icon">✅</span>
                     满足条件时执行：
                   </div>
-                  <div v-for="(logic, lIndex) in step.filterLogic" :key="logic.id" class="preview-execution-item filter">
+                  <div v-for="(logic, lIndex) in step.filterLogics" :key="logic.id" class="preview-execution-item filter">
                     <span v-if="logic.executionType === 'count'">
                       📊 计数：{{ logic.countType === 'all' ? '统计所有记录' : ('统计字段 ' + logic.countField) }}
                     </span>
@@ -2266,12 +2266,12 @@
                 </div>
                 
                 <!-- 条件不符时执行预览 -->
-                <div v-if="step.reverseLogic && step.reverseLogic.length > 0" class="preview-execution-logic reverse">
+                <div v-if="step.reverseLogics && step.reverseLogics.length > 0" class="preview-execution-logic reverse">
                   <div class="preview-execution-header reverse">
                     <span class="preview-icon">❌</span>
                     条件不符时执行：
                   </div>
-                  <div v-for="(logic, lIndex) in step.reverseLogic" :key="logic.id" class="preview-execution-item reverse">
+                  <div v-for="(logic, lIndex) in step.reverseLogics" :key="logic.id" class="preview-execution-item reverse">
                     <span v-if="logic.executionType === 'count'">
                       📊 计数：{{ logic.countType === 'all' ? '统计所有记录' : ('统计字段 ' + logic.countField) }}
                     </span>
@@ -2565,8 +2565,8 @@
             calculationSteps: [],
             collapsed: false,
             filterItems: [],
-            filterLogic: [],
-            reverseLogic: []
+            filterLogics: [],
+            reverseLogics: []
           };
           logicSteps.value.push(newStep);
           currentStep.value = logicSteps.value.length - 1;
@@ -2736,10 +2736,10 @@
         };
 
         const addFilterLogic = (step) => {
-          if (!step.filterLogic) {
-            step.filterLogic = [];
+          if (!step.filterLogics) {
+            step.filterLogics = [];
           }
-          step.filterLogic.push({
+          step.filterLogics.push({
             id: Date.now(),
             executionType: '',
             // 计数
@@ -2763,14 +2763,14 @@
         };
 
         const removeFilterLogic = (step, logicIndex) => {
-          step.filterLogic.splice(logicIndex, 1);
+          step.filterLogics.splice(logicIndex, 1);
         };
 
         const addReverseLogic = (step) => {
-          if (!step.reverseLogic) {
-            step.reverseLogic = [];
+          if (!step.reverseLogics) {
+            step.reverseLogics = [];
           }
-          step.reverseLogic.push({
+          step.reverseLogics.push({
             id: Date.now(),
             executionType: '',
             // 计数
@@ -2794,7 +2794,7 @@
         };
 
         const removeReverseLogic = (step, logicIndex) => {
-          step.reverseLogic.splice(logicIndex, 1);
+          step.reverseLogics.splice(logicIndex, 1);
         };
 
         const moveStep = (index, direction) => {
@@ -2807,13 +2807,13 @@
         const onCategoryChange = (step) => {
           step.functionName = '';
           step.params = [];
-          // 如果是筛选分类，初始化 filterItems 和 filterLogic
+          // 如果是筛选分类，初始化 filterItems 和 filterLogics
           if (step.functionCategory === 'filter') {
             if (!step.filterItems) {
               step.filterItems = [];
             }
-            if (!step.filterLogic) {
-              step.filterLogic = [];
+            if (!step.filterLogics) {
+              step.filterLogics = [];
             }
           }
         };
@@ -2930,7 +2930,7 @@
           }, { deep: true });
           
           // 监听执行逻辑中的字段变化
-          watch(() => step.filterLogic, (newLogic) => {
+          watch(() => step.filterLogics, (newLogic) => {
             if (newLogic) {
               newLogic.forEach(logic => {
                 watchField(() => logic.countField, `countField-${logic.id}`);
@@ -2942,7 +2942,7 @@
             }
           }, { deep: true });
           
-          watch(() => step.reverseLogic, (newLogic) => {
+          watch(() => step.reverseLogics, (newLogic) => {
             if (newLogic) {
               newLogic.forEach(logic => {
                 watchField(() => logic.countField, `reverse-countField-${logic.id}`);
@@ -3079,8 +3079,8 @@
             }
             
             // 收集执行逻辑中的字段
-            if (step.filterLogic) {
-              step.filterLogic.forEach(logic => {
+            if (step.filterLogics) {
+              step.filterLogics.forEach(logic => {
                 if (logic.countField) usedFields.add(logic.countField);
                 if (logic.sumField) usedFields.add(logic.sumField);
                 if (logic.returnField) usedFields.add(logic.returnField);
@@ -3089,8 +3089,8 @@
               });
             }
             
-            if (step.reverseLogic) {
-              step.reverseLogic.forEach(logic => {
+            if (step.reverseLogics) {
+              step.reverseLogics.forEach(logic => {
                 if (logic.countField) usedFields.add(logic.countField);
                 if (logic.sumField) usedFields.add(logic.sumField);
                 if (logic.returnField) usedFields.add(logic.returnField);

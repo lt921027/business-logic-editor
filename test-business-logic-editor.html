@@ -1605,12 +1605,12 @@
                     </div>
 
                     <!-- 满足条件时执行模块（只在有数据时显示） -->
-                  <div v-if="step.filterLogic && step.filterLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #2193b0;">
+                  <div v-if="step.filterLogics && step.filterLogics.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #2193b0;">
                     <div class="filter-actions">
                       <h4 style="margin: 0; color: #2193b0; display: inline-block;">满足条件时执行</h4>
                     </div>
 
-                    <div v-for="(logic, logicIndex) in step.filterLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #2193b0;">
+                    <div v-for="(logic, logicIndex) in step.filterLogics" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #2193b0;">
                       <div class="filter-condition-header">
                         <div class="logic-operator" style="max-width: 200px;">
                           <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
@@ -1667,12 +1667,12 @@
                   </div>
 
                   <!-- 条件不符时执行模块（只在有数据时显示） -->
-                  <div v-if="step.reverseLogic && step.reverseLogic.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #f45c43;">
+                  <div v-if="step.reverseLogics && step.reverseLogics.length > 0" class="filter-logic-editor" style="margin-top: 16px; background: #f8f9fa; border-radius: 8px; padding: 16px; border: 1px solid #e0e0e0; border-left: 4px solid #f45c43;">
                     <div class="filter-actions">
                       <h4 style="margin: 0; color: #f45c43; display: inline-block;">条件不符时执行</h4>
                     </div>
 
-                    <div v-for="(logic, logicIndex) in step.reverseLogic" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #f45c43;">
+                    <div v-for="(logic, logicIndex) in step.reverseLogics" :key="logic.id" class="filter-condition-block" style="border-left: 4px solid #f45c43;">
                       <div class="filter-condition-header">
                         <div class="logic-operator" style="max-width: 200px;">
                           <label style="font-size: 0.85rem; color: #666; margin-bottom: 4px; display: block;">执行操作</label>
@@ -1944,8 +1944,8 @@
             collapsed: false,
             params: [],
             filterItems: [],
-            filterLogic: [],
-            reverseLogic: [],
+            filterLogics: [],
+            reverseLogics: [],
             calculationSteps: []
           };
           
@@ -1983,8 +1983,8 @@
 
         const onCategoryChange = (step) => {
           step.filterItems = [];
-          step.filterLogic = [];
-          step.reverseLogic = [];
+          step.filterLogics = [];
+          step.reverseLogics = [];
           step.calculationSteps = [];
           step.functionName = '';
           step.field = '';
@@ -2296,11 +2296,11 @@
         };
 
         const addFilterLogic = (step) => {
-          step.reverseLogic = [];
-          if (!step.filterLogic) {
-            step.filterLogic = [];
+          step.reverseLogics = [];
+          if (!step.filterLogics) {
+            step.filterLogics = [];
           }
-          step.filterLogic.push({
+          step.filterLogics.push({
             id: Date.now(),
             type: '',
             value: '',
@@ -2309,15 +2309,15 @@
         };
 
         const removeFilterLogic = (step, logicIndex) => {
-          step.filterLogic.splice(logicIndex, 1);
+          step.filterLogics.splice(logicIndex, 1);
         };
 
         const addReverseLogic = (step) => {
-          step.filterLogic = [];
-          if (!step.reverseLogic) {
-            step.reverseLogic = [];
+          step.filterLogics = [];
+          if (!step.reverseLogics) {
+            step.reverseLogics = [];
           }
-          step.reverseLogic.push({
+          step.reverseLogics.push({
             id: Date.now(),
             type: '',
             value: '',
@@ -2326,7 +2326,7 @@
         };
 
         const removeReverseLogic = (step, logicIndex) => {
-          step.reverseLogic.splice(logicIndex, 1);
+          step.reverseLogics.splice(logicIndex, 1);
         };
 
         const addNestedGroup = (step) => {
@@ -2626,8 +2626,8 @@
                     fullCondition += `(${cond.condition})`;
                   });
                   
-                  if (step.filterLogic && step.filterLogic.length > 0) {
-                    const logic = step.filterLogic[0];
+                  if (step.filterLogics && step.filterLogics.length > 0) {
+                    const logic = step.filterLogics[0];
                     if (logic.type === 'count') {
                       code += `  let ${step.outputVar || `step${index + 1}`} = ${fullCondition} ? 1 : 0;\n`;
                     } else if (logic.type === 'sum') {

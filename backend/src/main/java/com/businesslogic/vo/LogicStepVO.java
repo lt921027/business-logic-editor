@@ -12,7 +12,7 @@ public class LogicStepVO {
     /**
      * 函数分类
      * 查询接口返回字符串类型，用于前端页面展示
-     * 保存时由前端转换为数组格     */
+     * 保存时 DTO 与 VO 中均为字符串     */
     private String functionCategory;
 
     private String field;
@@ -35,9 +35,9 @@ public class LogicStepVO {
 
     private List<FilterItemVO> filterItems;
 
-    private List<FilterLogicVO> filterLogic;
+    private List<FilterLogicVO> filterLogics;
 
-    private List<FilterLogicVO> reverseLogic;
+    private List<FilterLogicVO> reverseLogics;
 
     private Boolean collapsed;
 
@@ -145,20 +145,20 @@ public class LogicStepVO {
         this.filterItems = filterItems;
     }
 
-    public List<FilterLogicVO> getFilterLogic() {
-        return filterLogic;
+    public List<FilterLogicVO> getFilterLogics() {
+        return filterLogics;
     }
 
-    public void setFilterLogic(List<FilterLogicVO> filterLogic) {
-        this.filterLogic = filterLogic;
+    public void setFilterLogics(List<FilterLogicVO> filterLogics) {
+        this.filterLogics = filterLogics;
     }
 
-    public List<FilterLogicVO> getReverseLogic() {
-        return reverseLogic;
+    public List<FilterLogicVO> getReverseLogics() {
+        return reverseLogics;
     }
 
-    public void setReverseLogic(List<FilterLogicVO> reverseLogic) {
-        this.reverseLogic = reverseLogic;
+    public void setReverseLogics(List<FilterLogicVO> reverseLogics) {
+        this.reverseLogics = reverseLogics;
     }
 
     public Boolean getCollapsed() {
@@ -187,14 +187,14 @@ public class LogicStepVO {
                 Objects.equals(mappedField, that.mappedField) &&
                 Objects.equals(calculationSteps, that.calculationSteps) &&
                 Objects.equals(filterItems, that.filterItems) &&
-                Objects.equals(filterLogic, that.filterLogic) &&
-                Objects.equals(reverseLogic, that.reverseLogic) &&
+                Objects.equals(filterLogics, that.filterLogics) &&
+                Objects.equals(reverseLogics, that.reverseLogics) &&
                 Objects.equals(collapsed, that.collapsed);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, stepOrder, functionCategory, field, functionName, params, customExpression, outputVar, comment, filterScope, mappedField, calculationSteps, filterItems, filterLogic, reverseLogic, collapsed);
+        return Objects.hash(id, stepOrder, functionCategory, field, functionName, params, customExpression, outputVar, comment, filterScope, mappedField, calculationSteps, filterItems, filterLogics, reverseLogics, collapsed);
     }
 
     @Override
@@ -213,8 +213,8 @@ public class LogicStepVO {
                 ", mappedField='" + mappedField + '\'' +
                 ", calculationSteps=" + calculationSteps +
                 ", filterItems=" + filterItems +
-                ", filterLogic=" + filterLogic +
-                ", reverseLogic=" + reverseLogic +
+                ", filterLogics=" + filterLogics +
+                ", reverseLogics=" + reverseLogics +
                 ", collapsed=" + collapsed +
                 '}';
     }

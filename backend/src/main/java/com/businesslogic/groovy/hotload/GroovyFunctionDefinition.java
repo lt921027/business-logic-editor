@@ -5,13 +5,7 @@ import java.util.Arrays;
 /**
  * Groovy 函数定义
  *
- * <p>对应 Aviator 的 FunctionDefinition，描述一个可热加载的函数配置。
- *
- * <p>与 Aviator 版本的差异：
- * <ul>
- *   <li>javaFunction 字段类型从 AbstractFunction 改为 {@link GroovyFunction}</li>
- *   <li>移除对 Aviator 类型的依赖</li>
- * </ul>
+ * <p>描述一个可热加载的 Groovy 函数配置。
  *
  * <p>关联体系：
  * <ul>
@@ -20,10 +14,10 @@ import java.util.Arrays;
  *   <li>EXPRESSION 类型：{@link #expression} 字段被 {@link GroovyFunctionRegistry#compileExpression} 编译</li>
  *   <li>SCRIPT 类型：{@link #script} 被直接编译，参数经 {@link #params} 在调用时注入 Binding</li>
  *   <li>JAVA 类型：{@link #javaFunction} 字段被 {@link GroovyFunctionRegistry.JavaFunctionClosure} 直接包装</li>
- *   <li>{@link #version} 字段用于热更新时检测变更（参考 Aviator 版本的版本号设计）</li>
+ *   <li>{@link #version} 字段用于热更新时检测变更</li>
  * </ul>
  *
- * <p>采用 Builder 模式以避免构造参数过多导致的可读性问题，与 Aviator 版本保持一致。
+ * <p>采用 Builder 模式以避免构造参数过多导致的可读性问题。
  */
 public class GroovyFunctionDefinition {
 
@@ -77,15 +71,14 @@ public class GroovyFunctionDefinition {
     /**
      * 版本号（用于变更检测）
      *
-     * <p>热更新时可通过比较版本号决定是否需要重新编译；Aviator 版本同样使用此字段。
+     * <p>热更新时可通过比较版本号决定是否需要重新编译。
      */
     private String version;
 
     /**
      * 是否启用
      *
-     * <p>默认 true。设置为 false 时 Closure 仍存在但调用方可通过此标志跳过执行
-     * （当前实现未强制禁用，保留字段以与 Aviator 版本对齐）。
+     * <p>默认 true。设置为 false 时 Closure 仍存在但调用方可通过此标志跳过执行。
      */
     private boolean enabled = true;
 

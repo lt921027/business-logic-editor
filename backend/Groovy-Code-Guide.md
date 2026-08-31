@@ -6,7 +6,7 @@
 
 ## 一、整体架构概览
 
-Groovy 引擎作为 Aviator 引擎的并行替代方案，独立运行，不依赖任何 Aviator 文件。整体分为以下层次：
+Groovy 引擎独立运行，整体分为以下层次：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -66,7 +66,7 @@ Groovy 引擎作为 Aviator 引擎的并行替代方案，独立运行，不依�
 4. 初始化函数注册表 `registeredFunctions` 和 `registeredStaticClasses`
 
 **关键设计**：
-- **编译缓存**：以源码 MD5 为 key，避免重复编译（Groovy parseClass 开销远高于 Aviator）
+- **编译缓存**：以源码 MD5 为 key，避免重复编译（Groovy parseClass 开销较高）
 - **每次执行新建 Script 实例 + Binding**：保证线程安全，避免状态串扰
 
 ---
@@ -127,12 +127,12 @@ Groovy 引擎作为 Aviator 引擎的并行替代方案，独立运行，不依�
    - **direct**：直接映射 → `def step1 = JsonPathUtil.read(inputData, '$.field')`
    - **calculation**：计算步骤 → 支持字符串/数值/日期函数，多个子计算通过 `&&`/`||` 组合
    - **filter**：筛选步骤 → 生成 `for (item in list) { if (condition) result << item }` 循环
-   - **custom**：自定义表达式 → Aviator 语法转 Groovy（`nil`→`null`，`AND`→`&&`）
+   - **custom**：自定义表达式 → 旧式语法转 Groovy（`nil`→`null`，`AND`→`&&`）
 3. 末尾追加 `return lastVarName`，确保返回最后一步结果
 
 **语法映射示例**：
 ```
-Aviator                              → Groovy
+自定义表达式                         → Groovy
 let x = expr;                        → def x = expr
 for item in list { }                 → for (item in list) { }
 seq.add(list, item)                  → list << item
@@ -249,10 +249,10 @@ groovy-expr:txn:{txnCode}                    Hash    交易码骨架（特征版
 groovy-expr:txn:data:{txnCode}:{featureCode} String  特征源码（Groovy 脚本字符串）
 ```
 
-**与 Aviator 的核心差异**：
+**核心设计**：
 - Redis 存储**源码字符串**（String），而非序列化的 byte[]
 - 反序列化即重新编译源码为 `CompiledGroovyScript`
-- 使用独立 Key 前缀 `groovy-expr:` 与 Aviator 缓存隔离
+- 使用独立 Key 前缀 `groovy-expr:`
 
 **同步机制**：
 - **启动时**：全量加载所有交易码
@@ -280,7 +280,7 @@ groovy-expr:txn:data:{txnCode}:{featureCode} String  特征源码（Groovy 脚�
 
 **文件**：[GroovyDateFunctions.java](file:///c:/Users/lt/Desktop/业务逻辑编辑/backend/src/main/java/com/businesslogic/groovy/util/GroovyDateFunctions.java)
 
-**作用**：提供 Aviator 内置 `date.*` 函数的等价实现。
+**作用**：提供 Groovy 脚本可用的日期计算与格式化函数。
 
 **支持的函数**：
 - `diffMonths(a, b)` / `diffDays(a, b)` / `diffYears(a, b)`：日期差值计算
@@ -367,4 +367,4 @@ groovy-expr:txn:data:{txnCode}:{featureCode} String  特征源码（Groovy 脚�
 4. **沙箱双保险**：白名单管 import + 黑名单管直接调用
 5. **单例引擎共享**：Spring Bean 与 GroovyExecutor 静态方法使用同一实例
 6. **Closure 包装**：统一三类函数（表达式/脚本/Java）的调用方式
-7. **独立 URL 前缀**：与 Aviator 控制器隔离，调用方可按需选择引擎
+7. **独立 URL 前缀**：提供独立的接口访问入口

@@ -36,9 +36,11 @@ public class LogicStep {
 
     private String filterItems;
 
-    private String filterLogic;
+    @TableField("filter_logic")
+    private String filterLogics;
 
-    private String reverseLogic;
+    @TableField("reverse_logic")
+    private String reverseLogics;
 
     private Boolean collapsed;
 
@@ -163,20 +165,20 @@ public class LogicStep {
         this.filterItems = filterItems;
     }
 
-    public String getFilterLogic() {
-        return filterLogic;
+    public String getFilterLogics() {
+        return filterLogics;
     }
 
-    public void setFilterLogic(String filterLogic) {
-        this.filterLogic = filterLogic;
+    public void setFilterLogics(String filterLogics) {
+        this.filterLogics = filterLogics;
     }
 
-    public String getReverseLogic() {
-        return reverseLogic;
+    public String getReverseLogics() {
+        return reverseLogics;
     }
 
-    public void setReverseLogic(String reverseLogic) {
-        this.reverseLogic = reverseLogic;
+    public void setReverseLogics(String reverseLogics) {
+        this.reverseLogics = reverseLogics;
     }
 
     public Boolean getCollapsed() {
@@ -232,8 +234,8 @@ public class LogicStep {
         if (mappedField != null ? !mappedField.equals(logicStep.mappedField) : logicStep.mappedField != null) return false;
         if (calculationSteps != null ? !calculationSteps.equals(logicStep.calculationSteps) : logicStep.calculationSteps != null) return false;
         if (filterItems != null ? !filterItems.equals(logicStep.filterItems) : logicStep.filterItems != null) return false;
-        if (filterLogic != null ? !filterLogic.equals(logicStep.filterLogic) : logicStep.filterLogic != null) return false;
-        if (reverseLogic != null ? !reverseLogic.equals(logicStep.reverseLogic) : logicStep.reverseLogic != null) return false;
+        if (filterLogics != null ? !filterLogics.equals(logicStep.filterLogics) : logicStep.filterLogics != null) return false;
+        if (reverseLogics != null ? !reverseLogics.equals(logicStep.reverseLogics) : logicStep.reverseLogics != null) return false;
         if (collapsed != null ? !collapsed.equals(logicStep.collapsed) : logicStep.collapsed != null) return false;
         if (createdAt != null ? !createdAt.equals(logicStep.createdAt) : logicStep.createdAt != null) return false;
         if (updatedAt != null ? !updatedAt.equals(logicStep.updatedAt) : logicStep.updatedAt != null) return false;
@@ -256,8 +258,8 @@ public class LogicStep {
         result = 31 * result + (mappedField != null ? mappedField.hashCode() : 0);
         result = 31 * result + (calculationSteps != null ? calculationSteps.hashCode() : 0);
         result = 31 * result + (filterItems != null ? filterItems.hashCode() : 0);
-        result = 31 * result + (filterLogic != null ? filterLogic.hashCode() : 0);
-        result = 31 * result + (reverseLogic != null ? reverseLogic.hashCode() : 0);
+        result = 31 * result + (filterLogics != null ? filterLogics.hashCode() : 0);
+        result = 31 * result + (reverseLogics != null ? reverseLogics.hashCode() : 0);
         result = 31 * result + (collapsed != null ? collapsed.hashCode() : 0);
         result = 31 * result + (createdAt != null ? createdAt.hashCode() : 0);
         result = 31 * result + (updatedAt != null ? updatedAt.hashCode() : 0);
@@ -282,8 +284,8 @@ public class LogicStep {
                 ", mappedField='" + mappedField + '\'' +
                 ", calculationSteps='" + calculationSteps + '\'' +
                 ", filterItems='" + filterItems + '\'' +
-                ", filterLogic='" + filterLogic + '\'' +
-                ", reverseLogic='" + reverseLogic + '\'' +
+                ", filterLogics='" + filterLogics + '\'' +
+                ", reverseLogics='" + reverseLogics + '\'' +
                 ", collapsed=" + collapsed +
                 ", createdAt=" + createdAt +
                 ", updatedAt=" + updatedAt +

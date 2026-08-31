@@ -28,8 +28,7 @@ import java.util.concurrent.TimeoutException;
 /**
  * Groovy 表达式引擎
  *
- * <p>对应 Aviator 的 AviatorEvaluatorInstance。
- * 负责编译、执行、序列化 Groovy 脚本。
+ * <p>负责编译、执行、序列化 Groovy 脚本。
  *
  * <p>核心设计：
  * <ul>
@@ -272,7 +271,7 @@ public class GroovyExpressionEngine {
     /**
      * 序列化编译后的脚本（返回源码字符串）。
      *
-     * <p>为何如此设计：与 Aviator 不同，Groovy 编译后的 Class 由 GroovyClassLoader 动态生成，
+     * <p>为何如此设计：Groovy 编译后的 Class 由 GroovyClassLoader 动态生成，
      * 无法被标准 Java 序列化。改用源码字符串作为持久化载体，反序列化时由 {@link #deserialize} 重新编译。
      *
      */

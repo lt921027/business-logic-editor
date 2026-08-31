@@ -1,12 +1,14 @@
 package com.businesslogic.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 /**
  * 筛选执行逻辑数据传输对象
- * 定义筛选条件满足或不满足时执行的具体操 * 用于 filterLogic（满足条件时）和 reverseLogic（不满足条件时）
+ * 定义筛选条件满足或不满足时执行的具体操 * 用于 filterLogics（满足条件时）和 reverseLogics（不满足条件时）
  * 
- * 采用 type + value 的简化结构：
+ * 采用 type + typeValue 的简化结构：
  * - type: 执行操作类型
- * - value: 根据type的不同，value的含义也不同
+ * - typeValue: 根据type的不同，typeValue的含义也不同
  */
 public class FilterLogicDTO {
 
@@ -18,9 +20,9 @@ public class FilterLogicDTO {
 
     /**
      * 执行操作类型
-     * 决定 value 字段的含义和后续处理逻辑
+     * 决定 typeValue 字段的含义和后续处理逻辑
      * 可选值：
-     * - count：计数操     *   - value = "all"：统计所有符合条件的记录     *   - value = "fieldName"：统计指定字段的非空值数     * - sum：求和操     *   - value = "fieldName"：对指定数值字段求     * - distinct：去重操     *   - value = "fieldName"：对指定字段去重
+     * - count：计数操     *   - typeValue = "all"：统计所有符合条件的记录     *   - typeValue = "fieldName"：统计指定字段的非空值数     * - sum：求和操     *   - typeValue = "fieldName"：对指定数值字段求     * - distinct：去重操     *   - typeValue = "fieldName"：对指定字段去重
      */
     private String type;
 
@@ -34,7 +36,9 @@ public class FilterLogicDTO {
      * type = "distinct" 时：
      *   - "userId"：对 userId 字段去重
      */
-    private String value;
+    /** 兼容旧数据/旧调用方传入的 "value" 字段名，反序列化时两种 key 都接受，序列化统一输出 typeValue */
+    @JsonAlias("value")
+    private String typeValue;
 
     /**
      * 备注说明
@@ -58,12 +62,12 @@ public class FilterLogicDTO {
         this.type = type;
     }
 
-    public String getValue() {
-        return value;
+    public String getTypeValue() {
+        return typeValue;
     }
 
-    public void setValue(String value) {
-        this.value = value;
+    public void setTypeValue(String typeValue) {
+        this.typeValue = typeValue;
     }
 
     public String getComment() {
@@ -83,7 +87,7 @@ public class FilterLogicDTO {
 
         if (id != null ? !id.equals(that.id) : that.id != null) return false;
         if (type != null ? !type.equals(that.type) : that.type != null) return false;
-        if (value != null ? !value.equals(that.value) : that.value != null) return false;
+        if (typeValue != null ? !typeValue.equals(that.typeValue) : that.typeValue != null) return false;
         return comment != null ? comment.equals(that.comment) : that.comment == null;
     }
 
@@ -91,7 +95,7 @@ public class FilterLogicDTO {
     public int hashCode() {
         int result = id != null ? id.hashCode() : 0;
         result = 31 * result + (type != null ? type.hashCode() : 0);
-        result = 31 * result + (value != null ? value.hashCode() : 0);
+        result = 31 * result + (typeValue != null ? typeValue.hashCode() : 0);
         result = 31 * result + (comment != null ? comment.hashCode() : 0);
         return result;
     }
@@ -101,7 +105,7 @@ public class FilterLogicDTO {
         return "FilterLogicDTO{" +
                 "id=" + id +
                 ", type='" + type + '\'' +
-                ", value='" + value + '\'' +
+                ", typeValue='" + typeValue + '\'' +
                 ", comment='" + comment + '\'' +
                 '}';
     }

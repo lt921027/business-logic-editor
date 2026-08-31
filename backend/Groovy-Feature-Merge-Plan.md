@@ -20,7 +20,7 @@
 
 ### 1.2 问题
 
-当前实现中，每个特征独立编译为一个 `CompiledGroovyScript`（内部持有一个 `Class<? extends Script>`）。特征数量多时，Groovy 的 Class 对象比 Aviator 的 Expression 对象"重"得多，导致 Metaspace 内存占用过大。
+当前实现中，每个特征独立编译为一个 `CompiledGroovyScript`（内部持有一个 `Class<? extends Script>`）。特征数量多时，Groovy 的 Class 对象在 Metaspace 中的占用明显增大。
 
 ---
 

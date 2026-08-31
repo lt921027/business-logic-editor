@@ -1,6 +1,5 @@
 package com.businesslogic.dto;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -21,13 +20,14 @@ public class LogicStepDTO {
 
     /**
      * 函数分类
-     * 指定该步骤使用的函数分类（数组形式，取第一个元素），决定后续可用的具体函数和参数配置方     * 可选值：
+     * 指定该步骤使用的函数分类，决定后续可用的具体函数和参数配置方式
+     * 可选值：
      * - direct：直接计算（四则运算、数值处理）
      * - filter：筛选（数组筛选、条件过滤）
      * - string：字符串处理（拼接、截取、转换）
      * - number：数值处理（数学计算、聚合运算）
      * - date：日期处理（日期计算、格式化     * - custom：自定义表达式（高级自定义逻辑     */
-    private String[] functionCategory;
+    private String functionCategory;
 
     /**
      * 主字     * 该步骤主要处理的输入字段
@@ -100,12 +100,12 @@ public class LogicStepDTO {
     /**
      * 满足条件时执行的操作列表
      * 定义筛选条件满足时的处理逻辑，支持的操作类型     * - 计数（count     * - 求和（sum     * - 返回值（returnValue     * - 去重（distinct     * - 新参数（returnNewParam     */
-    private List<FilterLogicDTO> filterLogic;
+    private List<FilterLogicDTO> filterLogics;
 
     /**
      * 条件不满足时执行的操作列     * 提供条件不满足时的备选处理逻辑
-     * filterLogic 形成完整的条件分     */
-    private List<FilterLogicDTO> reverseLogic;
+     * filterLogics 形成完整的条件分     */
+    private List<FilterLogicDTO> reverseLogics;
 
     /**
      * 折叠状态（前端 UI 状态）
@@ -129,11 +129,11 @@ public class LogicStepDTO {
         this.stepOrder = stepOrder;
     }
 
-    public String[] getFunctionCategory() {
+    public String getFunctionCategory() {
         return functionCategory;
     }
 
-    public void setFunctionCategory(String[] functionCategory) {
+    public void setFunctionCategory(String functionCategory) {
         this.functionCategory = functionCategory;
     }
 
@@ -217,20 +217,20 @@ public class LogicStepDTO {
         this.filterItems = filterItems;
     }
 
-    public List<FilterLogicDTO> getFilterLogic() {
-        return filterLogic;
+    public List<FilterLogicDTO> getFilterLogics() {
+        return filterLogics;
     }
 
-    public void setFilterLogic(List<FilterLogicDTO> filterLogic) {
-        this.filterLogic = filterLogic;
+    public void setFilterLogics(List<FilterLogicDTO> filterLogics) {
+        this.filterLogics = filterLogics;
     }
 
-    public List<FilterLogicDTO> getReverseLogic() {
-        return reverseLogic;
+    public List<FilterLogicDTO> getReverseLogics() {
+        return reverseLogics;
     }
 
-    public void setReverseLogic(List<FilterLogicDTO> reverseLogic) {
-        this.reverseLogic = reverseLogic;
+    public void setReverseLogics(List<FilterLogicDTO> reverseLogics) {
+        this.reverseLogics = reverseLogics;
     }
 
     public Boolean getCollapsed() {
@@ -250,7 +250,8 @@ public class LogicStepDTO {
 
         if (id != null ? !id.equals(that.id) : that.id != null) return false;
         if (stepOrder != null ? !stepOrder.equals(that.stepOrder) : that.stepOrder != null) return false;
-        if (!Arrays.equals(functionCategory, that.functionCategory)) return false;
+        if (functionCategory != null ? !functionCategory.equals(that.functionCategory) : that.functionCategory != null)
+            return false;
         if (field != null ? !field.equals(that.field) : that.field != null) return false;
         if (functionName != null ? !functionName.equals(that.functionName) : that.functionName != null) return false;
         if (params != null ? !params.equals(that.params) : that.params != null) return false;
@@ -263,8 +264,8 @@ public class LogicStepDTO {
         if (calculationSteps != null ? !calculationSteps.equals(that.calculationSteps) : that.calculationSteps != null)
             return false;
         if (filterItems != null ? !filterItems.equals(that.filterItems) : that.filterItems != null) return false;
-        if (filterLogic != null ? !filterLogic.equals(that.filterLogic) : that.filterLogic != null) return false;
-        if (reverseLogic != null ? !reverseLogic.equals(that.reverseLogic) : that.reverseLogic != null) return false;
+        if (filterLogics != null ? !filterLogics.equals(that.filterLogics) : that.filterLogics != null) return false;
+        if (reverseLogics != null ? !reverseLogics.equals(that.reverseLogics) : that.reverseLogics != null) return false;
         return collapsed != null ? collapsed.equals(that.collapsed) : that.collapsed == null;
     }
 
@@ -272,7 +273,7 @@ public class LogicStepDTO {
     public int hashCode() {
         int result = id != null ? id.hashCode() : 0;
         result = 31 * result + (stepOrder != null ? stepOrder.hashCode() : 0);
-        result = 31 * result + Arrays.hashCode(functionCategory);
+        result = 31 * result + (functionCategory != null ? functionCategory.hashCode() : 0);
         result = 31 * result + (field != null ? field.hashCode() : 0);
         result = 31 * result + (functionName != null ? functionName.hashCode() : 0);
         result = 31 * result + (params != null ? params.hashCode() : 0);
@@ -283,8 +284,8 @@ public class LogicStepDTO {
         result = 31 * result + (mappedField != null ? mappedField.hashCode() : 0);
         result = 31 * result + (calculationSteps != null ? calculationSteps.hashCode() : 0);
         result = 31 * result + (filterItems != null ? filterItems.hashCode() : 0);
-        result = 31 * result + (filterLogic != null ? filterLogic.hashCode() : 0);
-        result = 31 * result + (reverseLogic != null ? reverseLogic.hashCode() : 0);
+        result = 31 * result + (filterLogics != null ? filterLogics.hashCode() : 0);
+        result = 31 * result + (reverseLogics != null ? reverseLogics.hashCode() : 0);
         result = 31 * result + (collapsed != null ? collapsed.hashCode() : 0);
         return result;
     }
@@ -294,7 +295,7 @@ public class LogicStepDTO {
         return "LogicStepDTO{" +
                 "id=" + id +
                 ", stepOrder=" + stepOrder +
-                ", functionCategory=" + Arrays.toString(functionCategory) +
+                ", functionCategory='" + functionCategory + '\'' +
                 ", field='" + field + '\'' +
                 ", functionName='" + functionName + '\'' +
                 ", params=" + params +
@@ -305,8 +306,8 @@ public class LogicStepDTO {
                 ", mappedField='" + mappedField + '\'' +
                 ", calculationSteps=" + calculationSteps +
                 ", filterItems=" + filterItems +
-                ", filterLogic=" + filterLogic +
-                ", reverseLogic=" + reverseLogic +
+                ", filterLogics=" + filterLogics +
+                ", reverseLogics=" + reverseLogics +
                 ", collapsed=" + collapsed +
                 '}';
     }

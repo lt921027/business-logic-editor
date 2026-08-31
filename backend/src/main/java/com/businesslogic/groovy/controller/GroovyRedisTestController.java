@@ -15,7 +15,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,6 +37,60 @@ public class GroovyRedisTestController {
 
     public GroovyRedisTestController(GroovyRedisExpressionCache cache) {
         this.cache = cache;
+    }
+
+    /**
+     * 生成 5 组测试数据并发布到 Redis（自动编译校验并递增版本号）。
+     *
+     * <p>sourceNo 为 TEST001 ~ TEST005，每组脚本都可用 /execute/{sourceNo} 执行；
+     * 默认环境变量 amount/status/price/quantity/discount/score/age 可直接使用。</p>
+     */
+    @PostMapping("/seed-test-data")
+    public Result<Map<String, Object>> seedTestData() {
+        Map<String, String> testScripts = new LinkedHashMap<>();
+        testScripts.put("TEST001",
+                "def rate = 1 - discount.toBigDecimal()\n"
+                        + "return [finalAmount: amount.toBigDecimal() * rate]");
+        testScripts.put("TEST002",
+                "def s = status.toUpperCase()\n"
+                        + "return [active: s == 'ACTIVE', message: s == 'ACTIVE' ? '正常' : '禁用']");
+        testScripts.put("TEST003",
+                "def p = price.toBigDecimal()\n"
+                        + "return [priceLevel: p >= 100 ? 'high' : (p >= 50 ? 'mid' : 'low')]");
+        testScripts.put("TEST004",
+                "def q = quantity.toInteger()\n"
+                        + "def unit = price.toBigDecimal()\n"
+                        + "def subtotal = q * unit\n"
+                        + "return [subtotal: subtotal, discounted: subtotal * (1 - discount.toBigDecimal())]");
+        testScripts.put("TEST005",
+                "def a = age.toInteger()\n"
+                        + "def sc = score.toInteger()\n"
+                        + "return [ageGroup: a >= 60 ? 'senior' : (a >= 18 ? 'adult' : 'minor'), pass: sc >= 60]");
+
+        List<Map<String, Object>> inserted = new ArrayList<>();
+        for (Map.Entry<String, String> item : testScripts.entrySet()) {
+            String sourceNo = item.getKey();
+            String script = item.getValue();
+            try {
+                cache.publishSourceScript(sourceNo, script);
+                GroovySourceScriptEntry entry = cache.getBySourceNo(sourceNo);
+                Map<String, Object> row = new HashMap<>();
+                row.put("sourceNo", sourceNo);
+                row.put("scriptLength", script.length());
+                row.put("version", entry != null ? entry.getVersion() : -1L);
+                inserted.add(row);
+                logger.info("[GroovySourceCacheTest] 测试数据已发布: sourceNo={}", sourceNo);
+            } catch (Exception e) {
+                logger.error("[GroovySourceCacheTest] 发布测试数据失败: sourceNo={}", sourceNo, e);
+                return Result.error("发布测试数据失败 sourceNo=" + sourceNo + ": " + e.getMessage());
+            }
+        }
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("insertedCount", inserted.size());
+        resp.put("items", inserted);
+        resp.put("status", cache.getStatus());
+        return Result.success("已生成并插入 5 组测试数据", resp);
     }
 
     /**

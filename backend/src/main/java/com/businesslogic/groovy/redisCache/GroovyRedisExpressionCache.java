@@ -9,12 +9,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -332,16 +331,12 @@ public class GroovyRedisExpressionCache {
     public void publishSourceScript(String sourceNo, String script) throws Exception {
         CompiledGroovyScript compiled = compileForCache(script);
 
-        byte[] scriptKeyBytes = GroovyExprRedisKeys.sourceScriptKey(sourceNo).getBytes(StandardCharsets.UTF_8);
-        byte[] sourceBytes = script.getBytes(StandardCharsets.UTF_8);
-        byte[] versionsKeyBytes = GroovyExprRedisKeys.SOURCE_VERSIONS_KEY.getBytes(StandardCharsets.UTF_8);
-        byte[] sourceNoBytes = sourceNo.getBytes(StandardCharsets.UTF_8);
-        byte[] globalVersionKeyBytes = GroovyExprRedisKeys.GLOBAL_VERSION_KEY.getBytes(StandardCharsets.UTF_8);
+        String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
 
-        List<Consumer<RedisConnection>> operations = Arrays.asList(
-                connection -> connection.set(scriptKeyBytes, sourceBytes),
-                connection -> connection.hIncrBy(versionsKeyBytes, sourceNoBytes, 1),
-                connection -> connection.incr(globalVersionKeyBytes)
+        List<Consumer<RedisOperations<String, String>>> operations = Arrays.asList(
+                ops -> ops.opsForValue().set(scriptKey, script),
+                ops -> ops.opsForHash().increment(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo, 1),
+                ops -> ops.opsForValue().increment(GroovyExprRedisKeys.GLOBAL_VERSION_KEY)
         );
 
         executeInTransaction(operations, String.format("publishSourceScript(sourceNo=%s)", sourceNo));
@@ -359,22 +354,19 @@ public class GroovyRedisExpressionCache {
      * 删除源报文脚本。
      */
     public void removeSourceScript(String sourceNo) {
-        byte[] scriptKeyBytes = GroovyExprRedisKeys.sourceScriptKey(sourceNo).getBytes(StandardCharsets.UTF_8);
-        byte[] versionsKeyBytes = GroovyExprRedisKeys.SOURCE_VERSIONS_KEY.getBytes(StandardCharsets.UTF_8);
-        byte[] sourceNoBytes = sourceNo.getBytes(StandardCharsets.UTF_8);
-        byte[] globalVersionKeyBytes = GroovyExprRedisKeys.GLOBAL_VERSION_KEY.getBytes(StandardCharsets.UTF_8);
+        String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
 
-        List<Consumer<RedisConnection>> operations = Arrays.asList(
-                connection -> connection.del(scriptKeyBytes),
-                connection -> connection.hDel(versionsKeyBytes, sourceNoBytes),
-                connection -> connection.incr(globalVersionKeyBytes)
+        List<Consumer<RedisOperations<String, String>>> operations = Arrays.asList(
+                ops -> ops.delete(scriptKey),
+                ops -> ops.opsForHash().delete(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo),
+                ops -> ops.opsForValue().increment(GroovyExprRedisKeys.GLOBAL_VERSION_KEY)
         );
 
         executeInTransaction(operations, String.format("removeSourceScript(sourceNo=%s)", sourceNo));
         removeLocalEntry(sourceNo);
     }
 
-    /**
+    /**v
      * 编译校验后返回原始脚本，用于 Redis 存储。
      */
     private CompiledGroovyScript compileForCache(String expression) throws Exception {
@@ -404,7 +396,7 @@ public class GroovyRedisExpressionCache {
             this.localCache = newCache;
             refreshLocalGlobalVersion();
         } catch (Exception e) {
-            logger.error("[GroovySourceCache] 鏇存柊鏈湴缂栬瘧缂撳瓨澶辫触, sourceNo={}", sourceNo, e);
+            logger.error("[GroovySourceCache] 更新本地编译缓存失败, sourceNo={}", sourceNo, e);
         } finally {
             reloadLock.unlock();
         }
@@ -454,9 +446,9 @@ public class GroovyRedisExpressionCache {
     /**
      * 在 Redis 事务中执行多个操作。
      */
-    private void executeInTransaction(List<Consumer<RedisConnection>> operations, String operationName) {
+    private void executeInTransaction(List<Consumer<RedisOperations<String, String>>> operations, String operationName) {
         try {
-            redisUtils.executeInTransaction(operations);
+            redisUtils.executeInTemplateTransaction(operations);
             logger.info("[GroovySourceCache] {} 操作成功", operationName);
         } catch (Exception e) {
             logger.error("[GroovySourceCache] {} 操作失败", operationName, e);

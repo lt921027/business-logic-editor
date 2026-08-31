@@ -264,7 +264,7 @@ public class BusinessLogicService extends ServiceImpl<BusinessLogicMapper, Busin
             LogicStep step = new LogicStep();
             step.setBusinessLogicId(businessLogicId);
             step.setStepOrder(dto.getStepOrder());
-            step.setFunctionCategory(dto.getFunctionCategory()==null?"":dto.getFunctionCategory()[0]);
+            step.setFunctionCategory(dto.getFunctionCategory()!=null?dto.getFunctionCategory():"");
             step.setField(dto.getField());
             step.setFunctionName(dto.getFunctionName());
             step.setParams(dto.getParams() != null ? String.join(",", dto.getParams()) : null);
@@ -279,8 +279,8 @@ public class BusinessLogicService extends ServiceImpl<BusinessLogicMapper, Busin
                 List<FilterItemVO> filterItemsForStorage = convertFilterItemsToVO(dto.getFilterItems());
                 step.setCalculationSteps(calcStepsForStorage != null ? objectMapper.writeValueAsString(calcStepsForStorage) : null);
                 step.setFilterItems(filterItemsForStorage != null ? objectMapper.writeValueAsString(filterItemsForStorage) : null);
-                step.setFilterLogic(dto.getFilterLogic() != null ? objectMapper.writeValueAsString(dto.getFilterLogic()) : null);
-                step.setReverseLogic(dto.getReverseLogic() != null ? objectMapper.writeValueAsString(dto.getReverseLogic()) : null);
+                step.setFilterLogics(dto.getFilterLogics() != null ? objectMapper.writeValueAsString(dto.getFilterLogics()) : null);
+                step.setReverseLogics(dto.getReverseLogics() != null ? objectMapper.writeValueAsString(dto.getReverseLogics()) : null);
             } catch (Exception e) {
                 logger.error("序列化逻辑步骤 JSON 失败", e);
             }
@@ -297,9 +297,7 @@ public class BusinessLogicService extends ServiceImpl<BusinessLogicMapper, Busin
             CalculationStepVO vo = new CalculationStepVO();
             vo.setId(step.getId());
             vo.setLogicOperator(step.getLogicOperator());
-            // String[] 转为 String
-            vo.setFunctionCategory(step.getFunctionCategory() != null && step.getFunctionCategory().length > 0 
-                ? step.getFunctionCategory()[0] : "");
+            vo.setFunctionCategory(step.getFunctionCategory() != null ? step.getFunctionCategory() : "");
             vo.setFilterFunction(step.getFilterFunction());
             vo.setOperands(convertOperandsToVO(step.getOperands()));
             return vo;
@@ -316,9 +314,7 @@ public class BusinessLogicService extends ServiceImpl<BusinessLogicMapper, Busin
             vo.setId(item.getId());
             vo.setType(item.getType());
             vo.setLogicOperator(item.getLogicOperator());
-            // String[] 转为 String
-            vo.setFunctionCategory(item.getFunctionCategory() != null && item.getFunctionCategory().length > 0 
-                ? item.getFunctionCategory()[0] : "");
+            vo.setFunctionCategory(item.getFunctionCategory() != null ? item.getFunctionCategory() : "");
             vo.setFilterFunction(item.getFilterFunction());
             vo.setOperands(convertOperandsToVO(item.getOperands()));
             vo.setLevel(item.getLevel());
@@ -374,8 +370,8 @@ public class BusinessLogicService extends ServiceImpl<BusinessLogicMapper, Busin
             try {
                 stepVO.setCalculationSteps(step.getCalculationSteps() != null ? objectMapper.readValue(step.getCalculationSteps(), new TypeReference<List<CalculationStepVO>>() {}) : null);
                 stepVO.setFilterItems(step.getFilterItems() != null ? objectMapper.readValue(step.getFilterItems(), new TypeReference<List<FilterItemVO>>() {}) : null);
-                stepVO.setFilterLogic(step.getFilterLogic() != null ? objectMapper.readValue(step.getFilterLogic(), new TypeReference<List<FilterLogicVO>>() {}) : null);
-                stepVO.setReverseLogic(step.getReverseLogic() != null ? objectMapper.readValue(step.getReverseLogic(), new TypeReference<List<FilterLogicVO>>() {}) : null);
+                stepVO.setFilterLogics(step.getFilterLogics() != null ? objectMapper.readValue(step.getFilterLogics(), new TypeReference<List<FilterLogicVO>>() {}) : null);
+                stepVO.setReverseLogics(step.getReverseLogics() != null ? objectMapper.readValue(step.getReverseLogics(), new TypeReference<List<FilterLogicVO>>() {}) : null);
             } catch (Exception e) {
                 logger.error("解析逻辑步骤 JSON 失败", e);
             }

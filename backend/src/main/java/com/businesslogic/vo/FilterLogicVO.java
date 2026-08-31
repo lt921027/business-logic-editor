@@ -1,5 +1,7 @@
 package com.businesslogic.vo;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
 import java.util.Objects;
 
 public class FilterLogicVO {
@@ -7,7 +9,10 @@ public class FilterLogicVO {
     private Long id;
 
     private String type;
-    private String value;
+
+    /** 兼容旧数据/旧调用方传入的 "value" 字段名，反序列化时两种 key 都接受，序列化统一输出 typeValue */
+    @JsonAlias("value")
+    private String typeValue;
 
     private String comment;
 
@@ -27,12 +32,12 @@ public class FilterLogicVO {
         this.type = type;
     }
 
-    public String getValue() {
-        return value;
+    public String getTypeValue() {
+        return typeValue;
     }
 
-    public void setValue(String value) {
-        this.value = value;
+    public void setTypeValue(String typeValue) {
+        this.typeValue = typeValue;
     }
 
     public String getComment() {
@@ -50,13 +55,13 @@ public class FilterLogicVO {
         FilterLogicVO that = (FilterLogicVO) o;
         return Objects.equals(id, that.id) &&
                 Objects.equals(type, that.type) &&
-                Objects.equals(value, that.value) &&
+                Objects.equals(typeValue, that.typeValue) &&
                 Objects.equals(comment, that.comment);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, type, value, comment);
+        return Objects.hash(id, type, typeValue, comment);
     }
 
     @Override
@@ -64,7 +69,7 @@ public class FilterLogicVO {
         return "FilterLogicVO{" +
                 "id=" + id +
                 ", type='" + type + '\'' +
-                ", value='" + value + '\'' +
+                ", typeValue='" + typeValue + '\'' +
                 ", comment='" + comment + '\'' +
                 '}';
     }

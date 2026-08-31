@@ -5,9 +5,7 @@ import java.util.Map;
 /**
  * Groovy Java 函数接口
  *
- * <p>对应 Aviator 的 AbstractFunction，供 Java 类型的自定义函数实现。
- *
- * <p>设计上避免依赖 Aviator 类型系统，使用纯 Java 类型。
+ * <p>供 Java 类型的自定义函数实现，使用纯 Java 类型定义。
  * 函数实现需保证线程安全（无共享可变状态，或使用同步机制），因为同一函数实例会被
  * 多个 Groovy 脚本执行线程并发调用。
  *

@@ -25,9 +25,8 @@ import java.util.Map;
 /**
  * Groovy 函数注册管理接口
  *
- * <p>对应 Aviator 的 FunctionRegistryController，业务逻辑保持一致。
- *
- * <p>使用独立的 URL 前缀 /api/groovy-functions/ 与 Aviator 控制器隔离。
+ * <p>使用独立的 URL 前缀 /api/groovy-functions/ 提供自定义函数的注册、
+ * 更新、注销、查询与测试接口。
  *
  * <p>关联体系：
  * <ul>
@@ -199,8 +198,7 @@ public class GroovyFunctionRegistryController {
     /**
      * 测试函数执行
      *
-     * <p>对应 Aviator 版本：构造表达式 `name(arg1, arg2)` 并执行。
-     * Groovy 版本：直接调用注册的 Closure，传入 env 的值作为参数。
+     * <p>直接调用注册的 Closure，传入 env 的值作为参数。
      *
      * <p>关联：通过 {@link GroovyFunctionRegistry#getFunctionInstance} 获取 Closure；
      * 通过 {@link GroovyFunctionRegistry#getFunctionDefinition} 获取参数名列表，

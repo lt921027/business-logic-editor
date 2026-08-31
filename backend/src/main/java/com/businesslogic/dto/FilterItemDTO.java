@@ -1,6 +1,5 @@
 package com.businesslogic.dto;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -28,10 +27,10 @@ public class FilterItemDTO {
 
     /**
      * 函数分类
-     * type condition 时，指定使用的函数分类（数组形式，取第一个元素）
+     * type condition 时，指定使用的函数分类
      * 可选值：string（字符串）、number（数值）、date（日期）
      */
-    private String[] functionCategory;
+    private String functionCategory;
 
     /**
      * 具体函数名称
@@ -83,11 +82,11 @@ public class FilterItemDTO {
         this.logicOperator = logicOperator;
     }
 
-    public String[] getFunctionCategory() {
+    public String getFunctionCategory() {
         return functionCategory;
     }
 
-    public void setFunctionCategory(String[] functionCategory) {
+    public void setFunctionCategory(String functionCategory) {
         this.functionCategory = functionCategory;
     }
 
@@ -134,7 +133,8 @@ public class FilterItemDTO {
         if (type != null ? !type.equals(that.type) : that.type != null) return false;
         if (logicOperator != null ? !logicOperator.equals(that.logicOperator) : that.logicOperator != null)
             return false;
-        if (!Arrays.equals(functionCategory, that.functionCategory)) return false;
+        if (functionCategory != null ? !functionCategory.equals(that.functionCategory) : that.functionCategory != null)
+            return false;
         if (filterFunction != null ? !filterFunction.equals(that.filterFunction) : that.filterFunction != null)
             return false;
         if (operands != null ? !operands.equals(that.operands) : that.operands != null) return false;
@@ -147,7 +147,7 @@ public class FilterItemDTO {
         int result = id != null ? id.hashCode() : 0;
         result = 31 * result + (type != null ? type.hashCode() : 0);
         result = 31 * result + (logicOperator != null ? logicOperator.hashCode() : 0);
-        result = 31 * result + Arrays.hashCode(functionCategory);
+        result = 31 * result + (functionCategory != null ? functionCategory.hashCode() : 0);
         result = 31 * result + (filterFunction != null ? filterFunction.hashCode() : 0);
         result = 31 * result + (operands != null ? operands.hashCode() : 0);
         result = 31 * result + (level != null ? level.hashCode() : 0);
@@ -161,7 +161,7 @@ public class FilterItemDTO {
                 "id=" + id +
                 ", type='" + type + '\'' +
                 ", logicOperator='" + logicOperator + '\'' +
-                ", functionCategory=" + Arrays.toString(functionCategory) +
+                ", functionCategory='" + functionCategory + '\'' +
                 ", filterFunction='" + filterFunction + '\'' +
                 ", operands=" + operands +
                 ", level=" + level +
