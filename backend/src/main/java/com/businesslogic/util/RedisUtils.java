@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 @Component
@@ -104,6 +105,58 @@ public class RedisUtils {
 
     public void sRem(String key, Object... values) {
         redisTemplate.opsForSet().remove(key, values);
+    }
+
+
+    // ==================== 分布式锁操作 ====================
+
+    /**
+     * 尝试获取 Redis 分布式锁（非阻塞，拿不到立即返回 false）。
+     * <p>
+     * 底层使用原子的 SET key value NX PX expire 命令；lockValue 建议使用 UUID 等全局唯一值，
+     * 释放锁时需要传入同一个 lockValue 进行校验，避免锁过期后误删其他线程持有的锁。
+     *
+     * @param key        锁 key
+     * @param lockValue  锁持有者标识（唯一值）
+     * @param expireTime 锁过期时间
+     * @param timeUnit   过期时间单位
+     * @return true 表示获取锁成功
+     */
+    public boolean tryLock(String key, String lockValue, long expireTime, TimeUnit timeUnit) {
+        Boolean locked = redisTemplate.opsForValue().setIfAbsent(key, lockValue, expireTime, timeUnit);
+        return Boolean.TRUE.equals(locked);
+    }
+
+    /**
+     * 释放 Redis 分布式锁。
+     * <p>
+     * 使用 WATCH + MULTI/EXEC 乐观事务实现“比较后删除”，不依赖 Lua 脚本：
+     * 先 WATCH 锁 key，读取并校验当前 value 与 lockValue 一致后，再在事务中删除该 key；
+     * 若校验后、事务提交前锁 key 已被其他线程修改（例如锁过期后被他人重新获取），
+     * WATCH 会使 EXEC 失败，从而不会误删他人的锁。
+     *
+     * @param key       锁 key
+     * @param lockValue 获取锁时使用的唯一值
+     * @return true 表示本次成功释放锁；value 不匹配或锁已不存在时返回 false
+     */
+    public boolean unlock(String key, String lockValue) {
+        List<Object> results = redisTemplate.execute(new SessionCallback<List<Object>>() {
+            @Override
+            public <K, V> List<Object> execute(RedisOperations<K, V> operations) {
+                @SuppressWarnings("unchecked")
+                RedisOperations<String, String> stringOps = (RedisOperations<String, String>) operations;
+                stringOps.watch(key);
+                String currentValue = stringOps.opsForValue().get(key);
+                if (lockValue.equals(currentValue)) {
+                    stringOps.multi();
+                    stringOps.delete(key);
+                    return stringOps.exec();
+                }
+                stringOps.unwatch();
+                return null;
+            }
+        });
+        return results != null && !results.isEmpty();
     }
 
 

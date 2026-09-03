@@ -76,9 +76,6 @@ public class GroovyExpressionGeneratorTest {
         assertTrue(merged.startsWith("// ============================================================"));
         assertTrue(merged.contains("// 特征数量: 2"));
         assertTrue(merged.contains("// ===== 特征: loanAcctAeApenAtToMons ====="));
-        assertTrue(merged.contains("// 默认值: BigDecimal.valueOf(-99999)"));
-        assertTrue(merged.contains("// 返回值类型: BigDecimal"));
-        assertTrue(merged.contains("// 源码hash: "));
         assertTrue(merged.contains("// ===== 特征: loanAcctStatus ====="));
         assertTrue(merged.contains("def loanAcctAeApenAtToMons() {"));
         assertTrue(merged.contains("def loanAcctStatus() {"));
@@ -208,7 +205,6 @@ public class GroovyExpressionGeneratorTest {
         assertTrue(mergedAdded.contains("def newFeature() {"));
         assertTrue(mergedAdded.contains("'newFeature': newFeature()"));
         assertTrue(mergedAdded.contains("// ===== 特征: newFeature ====="));
-        assertTrue(mergedAdded.contains("// 源码hash: "));
         assertTrue(mergedAdded.contains("// 特征数量: 3"));
 
         // 删除特征：回到原列表，脚本里不再出现 newFeature
@@ -226,8 +222,8 @@ public class GroovyExpressionGeneratorTest {
                 featureConfig("customFeature", feature, "0", "Integer")), null);
 
         assertTrue(merged.contains("// ===== 特征: customFeature ====="));
-        assertTrue(merged.contains("// 默认值: 0"));
-        assertTrue(merged.contains("// 返回值类型: Integer"));
+        assertTrue(merged.contains("// 特征名称: -"));
+        assertTrue(merged.contains("// 特征数据类型: Integer"));
     }
 
     /**
@@ -250,7 +246,6 @@ public class GroovyExpressionGeneratorTest {
 
         assertTrue(merged.contains("// ===== 特征: metaFeature ====="));
         assertTrue(merged.contains("// 特征名称: 金额校验"));
-        assertTrue(merged.contains("// 特征编码: metaFeature"));
         assertTrue(merged.contains("// 特征数据类型: BigDecimal"));
         assertTrue(merged.contains("// 版本号: v3"));
         assertTrue(merged.contains("// 特征描述: 校验金额是否大于 0"));
@@ -401,5 +396,161 @@ public class GroovyExpressionGeneratorTest {
         System.out.println("==================== 合并后的交易码级脚本 ====================");
         System.out.println(merged);
         System.out.println("============================================================");
+    }
+
+    /**
+     * 从合并脚本中删除指定特征（按方法名），其余特征保持不变，调度段与特征数量同步更新。
+     */
+    @Test
+    public void testRemoveFeature_keepsOtherFeaturesAndFixesDispatch() throws Exception {
+        FeatureConfigDTO feature1 = featureConfig("loanAcctAeApenAtToMons",
+                featureScript("loanAcctAeApenAtToMons",
+                        "        def step1 = JsonPathUtil.read(inputData, '$.root.PA01.PA01A');\n"
+                                + "        result = step1;\n"));
+        feature1.setFeatureName("贷款发放日期归集");
+        feature1.setFeatureDataType("BigDecimal");
+        feature1.setVersion("v1");
+        feature1.setFeatureLogicDesc("发放日期归集");
+
+        FeatureConfigDTO feature2 = featureConfig("loanAcctStatus",
+                featureScript("loanAcctStatus",
+                        "        def step1 = JsonPathUtil.read(inputData, '$.root.PA02.PA02A');\n"
+                                + "        result = step1;\n"));
+        feature2.setFeatureName("账户状态汇总");
+        feature2.setFeatureDataType("BigDecimal");
+        feature2.setVersion("v2");
+        feature2.setFeatureLogicDesc("账户状态汇总");
+
+        String merged = generator.mergeFeatureExpressions(
+                Arrays.asList(feature1, feature2), null);
+
+        String removed = generator.removeFeature(merged, "loanAcctStatus");
+
+        // 被删特征整体消失：注释块、方法体、调度行、特征数量
+        assertFalse(removed.contains("// ===== 特征: loanAcctStatus ====="));
+        assertFalse(removed.contains("// 特征名称: 账户状态汇总"));
+        assertFalse(removed.contains("def loanAcctStatus()"));
+        assertFalse(removed.contains("'loanAcctStatus': loanAcctStatus(),"));
+        assertTrue(removed.contains("// 特征数量: 1"));
+
+        // 保留特征完整不变
+        assertTrue(removed.contains("// ===== 特征: loanAcctAeApenAtToMons ====="));
+        assertTrue(removed.contains("// 特征名称: 贷款发放日期归集"));
+        assertTrue(removed.contains("def loanAcctAeApenAtToMons()"));
+        assertTrue(removed.contains("'loanAcctAeApenAtToMons': loanAcctAeApenAtToMons(),"));
+
+        // 删除后仍可编译执行，只剩保留的特征
+        CompiledGroovyScript compiled = GroovyExecutor.compile(removed);
+        Map<?, ?> result = (Map<?, ?>) GroovyExecutor.execute(compiled,
+                "{\"root\":{\"PA01\":{\"PA01A\":123},\"PA02\":{\"PA02A\":100}}}");
+        assertEquals(1, result.size());
+        assertEquals(123, result.get("loanAcctAeApenAtToMons"));
+    }
+
+    /**
+     * 删除不存在的特征方法名时抛出异常。
+     */
+    @Test
+    public void testRemoveFeature_unknownMethod_throws() {
+        FeatureConfigDTO feature1 = featureConfig("loanAcctAeApenAtToMons",
+                featureScript("loanAcctAeApenAtToMons",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        String merged = generator.mergeFeatureExpressions(
+                Collections.singletonList(feature1), null);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> generator.removeFeature(merged, "NOT_EXIST"));
+    }
+
+    /**
+     * 删除最后一个特征后，脚本退化为空结果 return [:]。
+     */
+    @Test
+    public void testRemoveFeature_lastFeature_returnsEmptyMap() {
+        FeatureConfigDTO feature1 = featureConfig("onlyFeature",
+                featureScript("onlyFeature",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        String merged = generator.mergeFeatureExpressions(
+                Collections.singletonList(feature1), null);
+
+        String removed = generator.removeFeature(merged, "onlyFeature");
+        System.out.println("===== 删除唯一特征后的脚本 =====\n" + removed + "\n=====");
+        assertFalse(removed.contains("def onlyFeature()"));
+        assertFalse(removed.contains("'onlyFeature'"));
+        assertTrue(removed.trim().endsWith("return [:]"));
+    }
+
+    /**
+     * 演示：三个特征的合并脚本，删除中间特征，展示删除前后的完整脚本。
+     */
+    @Test
+    public void demoRemoveFeature_middleFeature() {
+        FeatureConfigDTO feature1 = featureConfig("FEAT0001",
+                featureScript("featLoanAmt",
+                        "        def amount = JsonPathUtil.readInt(inputData, '$.loan.amount');\n"
+                                + "        result = amount > 0 ? amount : BigDecimal.valueOf(-99999);\n"));
+        feature1.setFeatureName("贷款金额校验");
+        feature1.setFeatureDataType("BigDecimal");
+        feature1.setVersion("v1");
+        feature1.setFeatureLogicDesc("校验贷款金额大于 0");
+
+        FeatureConfigDTO feature2 = featureConfig("FEAT0002",
+                featureScript("featCustLevel",
+                        "        def level = JsonPathUtil.readString(inputData, '$.customer.level');\n"
+                                + "        result = level == 'GOLD' ? BigDecimal.valueOf(1) : BigDecimal.valueOf(0);\n"));
+        feature2.setFeatureName("客户等级判断");
+        feature2.setFeatureDataType("BigDecimal");
+        feature2.setVersion("v2");
+        feature2.setFeatureLogicDesc("客户为 GOLD 等级时返回 1");
+
+        FeatureConfigDTO feature3 = featureConfig("FEAT0003",
+                featureScript("featRiskFlag",
+                        "        def risk = JsonPathUtil.readString(inputData, '$.risk.flag');\n"
+                                + "        result = risk == 'Y' ? BigDecimal.valueOf(1) : BigDecimal.valueOf(0);\n"));
+        feature3.setFeatureName("风险标记判断");
+        feature3.setFeatureDataType("BigDecimal");
+        feature3.setVersion("v3");
+        feature3.setFeatureLogicDesc("风险标记为 Y 时返回 1");
+
+        GroovyExpressionGenerator.MergeMeta meta = new GroovyExpressionGenerator.MergeMeta(
+                "LOAN_RISK", 5L, LocalDateTime.of(2026, 9, 3, 14, 30, 0));
+
+        String merged = generator.mergeFeatureExpressions(
+                Arrays.asList(feature1, feature2, feature3), meta);
+
+        System.out.println("######################## 删除前 ########################");
+        System.out.println(merged);
+        System.out.println("######################## 执行删除特征编码: FEAT0002 ########################");
+
+        String removed = generator.removeFeature(merged, "FEAT0002");
+
+        System.out.println("######################## 删除后 ########################");
+        System.out.println(removed);
+        System.out.println("######################## 结束 ########################");
+    }
+
+    /**
+     * 特征编码与方法名不一致时，按特征编码删除仍能正确定位并移除整个特征块。
+     */
+    @Test
+    public void testRemoveFeature_byFeatureCode_whenMethodNameDiffers() {
+        FeatureConfigDTO feature1 = featureConfig("FEAT0001",
+                featureScript("featLoanAmt",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        FeatureConfigDTO feature2 = featureConfig("FEAT0002",
+                featureScript("featCustLevel",
+                        "        def step1 = 2;\n        result = step1;\n"));
+
+        String merged = generator.mergeFeatureExpressions(
+                Arrays.asList(feature1, feature2), null);
+
+        String removed = generator.removeFeature(merged, "FEAT0002");
+
+        assertFalse(removed.contains("// ===== 特征: FEAT0002 ====="));
+        assertFalse(removed.contains("def featCustLevel()"));
+        assertFalse(removed.contains("'FEAT0002': featCustLevel(),"));
+        assertTrue(removed.contains("// 特征数量: 1"));
+        assertTrue(removed.contains("def featLoanAmt()"));
+        assertTrue(removed.contains("'FEAT0001': featLoanAmt(),"));
     }
 }

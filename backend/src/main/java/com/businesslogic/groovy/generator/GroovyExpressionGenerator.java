@@ -321,6 +321,266 @@ public class GroovyExpressionGenerator {
     }
 
     /**
+     * 从合并后的交易码级脚本中移除指定特征（按特征编码定位），其余特征保持不变。
+     *
+     * <p>删除范围包含三部分：</p>
+     * <ol>
+     *   <li>该特征的注释块（以 {@code // ===== 特征: 编码 =====} 开头）与整个 def 方法体；</li>
+     *   <li>统一调度段 {@code return [...]} 中该编码对应的调用行；</li>
+     *   <li>头部注释中的特征数量（自动减一）。</li>
+     * </ol>
+     *
+     * <p>特征编码必须与合并时写入注释标题的编码一致；脚本中不存在该编码时抛
+     * {@link IllegalArgumentException}，避免静默删错。</p>
+     *
+     * @param mergedScript 合并后的交易码级脚本（{@link #mergeFeatureExpressions} 的产物）
+     * @param featureCode  要删除的特征编码（对应注释行 {@code // ===== 特征: 编码 =====}）
+     * @return 删除该特征后的新脚本
+     */
+    public String removeFeature(String mergedScript, String featureCode) {
+        if (mergedScript == null || mergedScript.isEmpty()) {
+            throw new IllegalArgumentException("合并脚本不能为空");
+        }
+        if (featureCode == null || featureCode.trim().isEmpty()) {
+            throw new IllegalArgumentException("特征编码不能为空");
+        }
+
+        // 按行保留原格式重建；行号在删除过程中只增不减，删除集合用行号记录即可
+        String[] lines = mergedScript.split("\n", -1);
+        FeatureSpan span = locateFeatureSpan(lines, featureCode);
+        if (span == null) {
+            throw new IllegalArgumentException("合并脚本中不存在特征编码: " + featureCode);
+        }
+
+        Set<Integer> removeRows = new HashSet<>();
+        for (int row = span.commentStart; row <= span.bodyEnd; row++) {
+            removeRows.add(row);
+        }
+
+        // 是否已找到并删除了调度段中的调用行
+        boolean dispatchRemoved = false;
+        StringBuilder rebuilt = new StringBuilder();
+        for (int row = 0; row < lines.length; row++) {
+            String line = lines[row];
+
+            // 删除目标特征块（注释 + 方法体）
+            if (removeRows.contains(row)) {
+                continue;
+            }
+
+            // 删除调度段中该特征的行：'featureCode': methodName(),
+            String trimmed = line.trim();
+            if (trimmed.startsWith("'" + featureCode + "'")) {
+                dispatchRemoved = true;
+                continue;
+            }
+
+            rebuilt.append(line).append('\n');
+        }
+
+        if (!dispatchRemoved) {
+            // 说明脚本中没有该特征的调度调用；若特征块存在但调度缺失，按“已删除”处理即可
+            logger.warn("合并脚本中未找到特征编码 {} 的调度调用行，仅删除特征定义", featureCode);
+        }
+
+        // 修正头部“特征数量”：重新统计剩余特征注释块
+        String result = rebuilt.toString();
+        int remaining = countFeatureComments(result);
+        if (remaining == 0) {
+            // 删光了：调度段退化为空结果 map（与 merge 空列表行为一致）
+            result = normalizeEmptyDispatch(result);
+        }
+        result = updateFeatureCountHeader(result, remaining);
+        return result;
+    }
+
+    /**
+     * 将空调度段（return [ 到 ] 且中间无特征调用）替换为 return [:]。
+     */
+    private String normalizeEmptyDispatch(String script) {
+        String[] lines = script.split("\n", -1);
+        StringBuilder sb = new StringBuilder();
+        boolean inDispatch = false;
+        boolean dispatchEmpty = true;
+        boolean headerEnded = false;
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.equals("return [")) {
+                inDispatch = true;
+                continue;
+            }
+            if (inDispatch) {
+                if (trimmed.equals("]")) {
+                    inDispatch = false;
+                    if (dispatchEmpty) {
+                        sb.append("return [:]").append('\n');
+                    }
+                    dispatchEmpty = false;
+                    continue;
+                }
+                if (!trimmed.isEmpty() && headerEnded) {
+                    dispatchEmpty = false;
+                }
+                if (!trimmed.isEmpty()) {
+                    headerEnded = true;
+                }
+            }
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private int countFeatureComments(String script) {
+        int count = 0;
+        for (String line : script.split("\n")) {
+            if (line.trim().startsWith("// ===== 特征:")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String updateFeatureCountHeader(String script, int newCount) {
+        String[] lines = script.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            int idx = line.indexOf("// 特征数量:");
+            if (idx >= 0) {
+                lines[i] = line.substring(0, idx) + "// 特征数量: " + newCount;
+            }
+        }
+        return String.join("\n", lines);
+    }
+
+    /**
+     * 在合并脚本行数组中按特征编码定位该特征的注释起点与方法体结束行。
+     */
+    private FeatureSpan locateFeatureSpan(String[] lines, String featureCode) {
+        int commentStart = -1;
+
+        for (int row = 0; row < lines.length; row++) {
+            String line = lines[row];
+            String trimmed = line.trim();
+
+            if (trimmed.startsWith("// ===== 特征:")) {
+                String code = extractFeatureCode(trimmed);
+                if (code == null || !code.equals(featureCode)) {
+                    continue;
+                }
+                commentStart = row;
+
+                // 从注释行下一行开始找 def 方法体（注释行与 def 之间可能存在特征描述等注释行）
+                int defRow = findFeatureDefRow(lines, row + 1);
+                if (defRow < 0) {
+                    throw new IllegalArgumentException("特征编码 " + featureCode + " 缺少方法定义");
+                }
+
+                int bodyEnd = findMethodBodyEnd(lines, defRow);
+                if (bodyEnd < 0) {
+                    throw new IllegalArgumentException("特征方法体不完整: " + featureCode);
+                }
+                return new FeatureSpan(commentStart, bodyEnd, featureCode);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从注释块之后寻找该特征的 def 方法定义行。
+     * 合并脚本中特征注释块后紧跟 def 方法，中间只有注释行与空行。
+     */
+    private int findFeatureDefRow(String[] lines, int startRow) {
+        for (int row = startRow; row < lines.length; row++) {
+            String trimmed = lines[row].trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("//")) {
+                continue;
+            }
+            if (trimmed.startsWith("def ")) {
+                return row;
+            }
+            // 遇到非注释非 def 的代码（如下一个特征注释）说明方法缺失
+            if (trimmed.startsWith("// ===== 特征:") || trimmed.equals("return [")) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 从 def 行开始，用花括号配对找到方法体闭合 } 所在行。
+     * 合并脚本中方法体的字符串/注释不会拆行（merge 只追加方法体，不重排），按行配对足够。
+     */
+    private int findMethodBodyEnd(String[] lines, int defRow) {
+        int depth = 0;
+        boolean inSingle = false;
+        boolean inDouble = false;
+
+        for (int row = defRow; row < lines.length; row++) {
+            String line = lines[row];
+            for (int i = 0; i < line.length(); i++) {
+                char c = line.charAt(i);
+                if (inSingle) {
+                    if (c == '\\') {
+                        i++;
+                    } else if (c == '\'') {
+                        inSingle = false;
+                    }
+                    continue;
+                }
+                if (inDouble) {
+                    if (c == '\\') {
+                        i++;
+                    } else if (c == '"') {
+                        inDouble = false;
+                    }
+                    continue;
+                }
+                if (c == '\'') {
+                    inSingle = true;
+                } else if (c == '"') {
+                    inDouble = true;
+                } else if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return row;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    private String extractFeatureCode(String commentLine) {
+        int start = commentLine.indexOf("===== 特征:");
+        if (start < 0) {
+            return null;
+        }
+        start += "===== 特征:".length();
+        int end = commentLine.indexOf("=====", start);
+        if (end < 0) {
+            return null;
+        }
+        return commentLine.substring(start, end).trim();
+    }
+
+    /**
+     * 特征块区间：注释起点行号 + 方法体结束行号 + 特征编码。
+     */
+    private static class FeatureSpan {
+        final int commentStart;
+        final int bodyEnd;
+        final String featureCode;
+
+        FeatureSpan(int commentStart, int bodyEnd, String featureCode) {
+            this.commentStart = commentStart;
+            this.bodyEnd = bodyEnd;
+            this.featureCode = featureCode;
+        }
+    }
+
+    /**
      * 校验合并脚本长度不超过引擎编译限制。
      *
      * @param currentLength   当前脚本长度

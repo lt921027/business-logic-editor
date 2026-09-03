@@ -147,6 +147,41 @@ public class GroovyRedisTestController {
     }
 
     /**
+     * 从已发布的源报文脚本中移除指定特征（按特征编码）并重新发布（版本号自动递增）。
+     *
+     * <p>请求体：sourceNo（源报文编号）+ featureCode（要删除的特征编码）。</p>
+     */
+    @PostMapping("/remove-feature")
+    public Result<Map<String, Object>> removeFeature(@RequestBody Map<String, String> body) {
+        String sourceNo = body.get("sourceNo");
+        String featureCode = body.get("featureCode");
+
+        if (sourceNo == null || sourceNo.isEmpty()) {
+            return Result.error("sourceNo 不能为空");
+        }
+        if (featureCode == null || featureCode.isEmpty()) {
+            return Result.error("featureCode 不能为空");
+        }
+
+        try {
+            String newScript = cache.removeFeatureFromSource(sourceNo, featureCode);
+            GroovySourceScriptEntry entry = cache.getBySourceNo(sourceNo);
+
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("sourceNo", sourceNo);
+            resp.put("removedFeature", featureCode);
+            resp.put("newScriptLength", newScript.length());
+            resp.put("version", entry != null ? entry.getVersion() : -1L);
+            resp.put("status", cache.getStatus());
+            return Result.success("特征移除并重新发布成功", resp);
+        } catch (Exception e) {
+            logger.error("[GroovySourceCacheTest] remove-feature 失败: sourceNo={}, featureCode={}",
+                    sourceNo, featureCode, e);
+            return Result.error("移除特征失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 查询源报文本地编译缓存。
      */
     @GetMapping("/query/{sourceNo}")

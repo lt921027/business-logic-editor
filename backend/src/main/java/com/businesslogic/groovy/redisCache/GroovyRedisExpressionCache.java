@@ -3,6 +3,7 @@ package com.businesslogic.groovy.redisCache;
 import com.businesslogic.groovy.engine.CompiledGroovyScript;
 import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.groovy.engine.GroovyExpressionEngine;
+import com.businesslogic.groovy.generator.GroovyExpressionGenerator;
 import com.businesslogic.util.RedisUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +52,9 @@ public class GroovyRedisExpressionCache {
 
     @Autowired
     private RedisUtils redisUtils;
+
+    @Autowired
+    private GroovyExpressionGenerator expressionGenerator;
 
     private final GroovyExpressionEngine engine;
 
@@ -348,6 +352,38 @@ public class GroovyRedisExpressionCache {
      */
     public void updateSourceScript(String sourceNo, String script) throws Exception {
         publishSourceScript(sourceNo, script);
+    }
+
+    /**
+     * 从 Redis 中移除源报文整体脚本中的指定特征（按特征编码定位），并重新发布递增版本。
+     *
+     * <p>执行流程：</p>
+     * <ol>
+     *   <li>从 Redis 读取 {@code groovy-expr:source:script:{sourceNo}} 当前的合并脚本；</li>
+     *   <li>调用 {@link GroovyExpressionGenerator#removeFeature} 按特征编码移除目标特征
+     *       （注释块 + def 方法体 + 调度段调用行 + 头部特征数量自动更新）；</li>
+     *   <li>通过 {@link #publishSourceScript} 重新发布：脚本入库 + sourceNo 版本号 +1 +
+     *       全局版本号 +1 + 刷新本地缓存。</li>
+     * </ol>
+     *
+     * @param sourceNo   源报文编号
+     * @param featureCode 要删除的特征编码（对应合并脚本注释 {@code // ===== 特征: 编码 =====}）
+     * @return 删除特征后的新脚本
+     * @throws Exception 源报文不存在、特征不存在或脚本编译失败时抛出
+     */
+    public String removeFeatureFromSource(String sourceNo, String featureCode) throws Exception {
+        String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
+        String currentScript = redisUtils.get(scriptKey);
+
+        if (currentScript == null || currentScript.isEmpty()) {
+            throw new IllegalArgumentException("源报文不存在或脚本为空，无法移除特征: " + sourceNo);
+        }
+
+        String newScript = expressionGenerator.removeFeature(currentScript, featureCode);
+        publishSourceScript(sourceNo, newScript);
+        logger.info("[GroovySourceCache] 已从源报文 {} 中移除特征 {} 并重新发布",
+                sourceNo, featureCode);
+        return newScript;
     }
 
     /**
