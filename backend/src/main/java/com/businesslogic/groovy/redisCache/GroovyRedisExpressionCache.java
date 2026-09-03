@@ -331,15 +331,16 @@ public class GroovyRedisExpressionCache {
      *
      * @param sourceNo 源报文编号
      * @param script   合并后的整体 Groovy 脚本
+     * @param version
      */
-    public void publishSourceScript(String sourceNo, String script) throws Exception {
+    public void publishSourceScript(String sourceNo, String script, String version) throws Exception {
         CompiledGroovyScript compiled = compileForCache(script);
 
         String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
 
         List<Consumer<RedisOperations<String, String>>> operations = Arrays.asList(
                 ops -> ops.opsForValue().set(scriptKey, script),
-                ops -> ops.opsForHash().increment(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo, 1),
+                ops -> ops.opsForHash().put(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo, version),
                 ops -> ops.opsForValue().increment(GroovyExprRedisKeys.GLOBAL_VERSION_KEY)
         );
 
@@ -350,8 +351,8 @@ public class GroovyRedisExpressionCache {
     /**
      * 更新源报文脚本。
      */
-    public void updateSourceScript(String sourceNo, String script) throws Exception {
-        publishSourceScript(sourceNo, script);
+    public void updateSourceScript(String sourceNo, String script,String version) throws Exception {
+        publishSourceScript(sourceNo, script,version);
     }
 
     /**
@@ -380,7 +381,7 @@ public class GroovyRedisExpressionCache {
         }
 
         String newScript = expressionGenerator.removeFeature(currentScript, featureCode);
-        publishSourceScript(sourceNo, newScript);
+        publishSourceScript(sourceNo, newScript, "1");
         logger.info("[GroovySourceCache] 已从源报文 {} 中移除特征 {} 并重新发布",
                 sourceNo, featureCode);
         return newScript;

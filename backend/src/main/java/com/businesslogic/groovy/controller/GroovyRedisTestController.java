@@ -72,7 +72,7 @@ public class GroovyRedisTestController {
             String sourceNo = item.getKey();
             String script = item.getValue();
             try {
-                cache.publishSourceScript(sourceNo, script);
+                cache.publishSourceScript(sourceNo, script, "1");
                 GroovySourceScriptEntry entry = cache.getBySourceNo(sourceNo);
                 Map<String, Object> row = new HashMap<>();
                 row.put("sourceNo", sourceNo);
@@ -109,7 +109,7 @@ public class GroovyRedisTestController {
         }
 
         try {
-            cache.publishSourceScript(sourceNo, script);
+            cache.publishSourceScript(sourceNo, script, "1");
             Map<String, Object> resp = new HashMap<>();
             resp.put("sourceNo", sourceNo);
             resp.put("scriptLength", script.length());
@@ -134,7 +134,7 @@ public class GroovyRedisTestController {
         }
 
         try {
-            cache.updateSourceScript(sourceNo, script);
+            cache.updateSourceScript(sourceNo, script, "1");
             Map<String, Object> resp = new HashMap<>();
             resp.put("sourceNo", sourceNo);
             resp.put("scriptLength", script.length());
