@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -321,31 +322,58 @@ public class GroovyExpressionGenerator {
     }
 
     /**
-     * 从合并后的交易码级脚本中移除指定特征（按特征编码定位），其余特征保持不变。
+     * 从合并后的交易码级脚本中批量移除指定特征（按特征编码定位），其余特征保持不变。
      *
-     * <p>删除范围包含三部分：</p>
+     * <p>删除范围（每个特征）包含三部分：</p>
      * <ol>
      *   <li>该特征的注释块（以 {@code // ===== 特征: 编码 =====} 开头）与整个 def 方法体；</li>
      *   <li>统一调度段 {@code return [...]} 中该编码对应的调用行；</li>
      *   <li>头部注释中的特征数量（自动减一）。</li>
      * </ol>
      *
-     * <p>特征编码必须与合并时写入注释标题的编码一致；脚本中不存在该编码时抛
-     * {@link IllegalArgumentException}，避免静默删错。</p>
+     * <p>特征编码必须与合并时写入注释标题的编码一致；列表中任一编码在脚本中不存在时抛
+     * {@link IllegalArgumentException} 并列出缺失编码，脚本保持原样不执行部分删除。</p>
      *
-     * @param mergedScript 合并后的交易码级脚本（{@link #mergeFeatureExpressions} 的产物）
-     * @param featureCode  要删除的特征编码（对应注释行 {@code // ===== 特征: 编码 =====}）
-     * @return 删除该特征后的新脚本
+     * @param mergedScript    合并后的交易码级脚本（{@link #mergeFeatureExpressions} 的产物）
+     * @param featureCodeList 要删除的特征编码列表（对应注释行 {@code // ===== 特征: 编码 =====}），
+     *                        列表顺序不影响删除结果
+     * @return 删除全部目标特征后的新脚本
      */
-    public String removeFeature(String mergedScript, String featureCode) {
+    public String removeFeature(String mergedScript, List<String> featureCodeList) {
         if (mergedScript == null || mergedScript.isEmpty()) {
             throw new IllegalArgumentException("合并脚本不能为空");
         }
-        if (featureCode == null || featureCode.trim().isEmpty()) {
-            throw new IllegalArgumentException("特征编码不能为空");
+        if (featureCodeList == null || featureCodeList.isEmpty()) {
+            throw new IllegalArgumentException("特征编码列表不能为空");
         }
 
-        // 按行保留原格式重建；行号在删除过程中只增不减，删除集合用行号记录即可
+        // 先做存在性校验：任一编码不存在直接抛异常，避免脚本被部分删除
+        String[] lines = mergedScript.split("\n", -1);
+        List<String> missingCodes = new ArrayList<>();
+        for (String featureCode : featureCodeList) {
+            if (featureCode == null || featureCode.trim().isEmpty()) {
+                throw new IllegalArgumentException("特征编码列表中存在空编码");
+            }
+            if (locateFeatureSpan(lines, featureCode.trim()) == null) {
+                missingCodes.add(featureCode);
+            }
+        }
+        if (!missingCodes.isEmpty()) {
+            throw new IllegalArgumentException("合并脚本中不存在特征编码: " + String.join(", ", missingCodes));
+        }
+
+        // 逐个特征删除：每轮按当前脚本重新定位，前一轮删除不会影响后一轮的行号定位
+        String result = mergedScript;
+        for (String featureCode : featureCodeList) {
+            result = removeFeatureInternal(result, featureCode.trim());
+        }
+        return result;
+    }
+
+    /**
+     * 删除单个特征的核心实现。
+     */
+    private String removeFeatureInternal(String mergedScript, String featureCode) {
         String[] lines = mergedScript.split("\n", -1);
         FeatureSpan span = locateFeatureSpan(lines, featureCode);
         if (span == null) {

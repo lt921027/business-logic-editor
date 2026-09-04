@@ -9,6 +9,7 @@ import org.springframework.data.redis.listener.ChannelTopic;
 import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 
 import com.businesslogic.redisPublish.RedisMessageListener;
 
@@ -50,6 +51,24 @@ public class RedisConfig {
         template.setValueSerializer(RedisSerializer.byteArray());
         template.setHashKeySerializer(new StringRedisSerializer());
         template.setHashValueSerializer(new StringRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+
+    /**
+     * JDK 序列化的 RedisTemplate（key/hashKey/value 全部 JDK 序列化）。
+     *
+     * <p>供 Groovy 表达式源报文缓存链路使用，与另一环境发布的 JDK 序列化数据保持一致；
+     * Aviator 链路继续使用 {@link #redisTemplate}（String 序列化），互不影响。</p>
+     */
+    @Bean
+    public RedisTemplate<String, Object> jdkRedisTemplate(RedisConnectionFactory connectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(new JdkSerializationRedisSerializer());
+        template.setValueSerializer(new JdkSerializationRedisSerializer());
+        template.setHashKeySerializer(new JdkSerializationRedisSerializer());
+        template.setHashValueSerializer(new JdkSerializationRedisSerializer());
         template.afterPropertiesSet();
         return template;
     }

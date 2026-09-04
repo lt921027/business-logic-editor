@@ -424,7 +424,7 @@ public class GroovyExpressionGeneratorTest {
         String merged = generator.mergeFeatureExpressions(
                 Arrays.asList(feature1, feature2), null);
 
-        String removed = generator.removeFeature(merged, "loanAcctStatus");
+        String removed = generator.removeFeature(merged, Collections.singletonList("loanAcctStatus"));
 
         // 被删特征整体消失：注释块、方法体、调度行、特征数量
         assertFalse(removed.contains("// ===== 特征: loanAcctStatus ====="));
@@ -459,7 +459,7 @@ public class GroovyExpressionGeneratorTest {
                 Collections.singletonList(feature1), null);
 
         assertThrows(IllegalArgumentException.class,
-                () -> generator.removeFeature(merged, "NOT_EXIST"));
+                () -> generator.removeFeature(merged, Collections.singletonList("NOT_EXIST")));
     }
 
     /**
@@ -473,7 +473,7 @@ public class GroovyExpressionGeneratorTest {
         String merged = generator.mergeFeatureExpressions(
                 Collections.singletonList(feature1), null);
 
-        String removed = generator.removeFeature(merged, "onlyFeature");
+        String removed = generator.removeFeature(merged, Collections.singletonList("onlyFeature"));
         System.out.println("===== 删除唯一特征后的脚本 =====\n" + removed + "\n=====");
         assertFalse(removed.contains("def onlyFeature()"));
         assertFalse(removed.contains("'onlyFeature'"));
@@ -522,7 +522,7 @@ public class GroovyExpressionGeneratorTest {
         System.out.println(merged);
         System.out.println("######################## 执行删除特征编码: FEAT0002 ########################");
 
-        String removed = generator.removeFeature(merged, "FEAT0002");
+        String removed = generator.removeFeature(merged, Collections.singletonList("FEAT0002"));
 
         System.out.println("######################## 删除后 ########################");
         System.out.println(removed);
@@ -544,7 +544,7 @@ public class GroovyExpressionGeneratorTest {
         String merged = generator.mergeFeatureExpressions(
                 Arrays.asList(feature1, feature2), null);
 
-        String removed = generator.removeFeature(merged, "FEAT0002");
+        String removed = generator.removeFeature(merged, Collections.singletonList("FEAT0002"));
 
         assertFalse(removed.contains("// ===== 特征: FEAT0002 ====="));
         assertFalse(removed.contains("def featCustLevel()"));
@@ -552,5 +552,54 @@ public class GroovyExpressionGeneratorTest {
         assertTrue(removed.contains("// 特征数量: 1"));
         assertTrue(removed.contains("def featLoanAmt()"));
         assertTrue(removed.contains("'FEAT0001': featLoanAmt(),"));
+    }
+
+    /**
+     * 批量删除多个特征：一次删除 FEAT0002、FEAT0003，保留 FEAT0001。
+     */
+    @Test
+    public void testRemoveFeature_batchRemoves() {
+        FeatureConfigDTO feature1 = featureConfig("FEAT0001",
+                featureScript("featLoanAmt",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        FeatureConfigDTO feature2 = featureConfig("FEAT0002",
+                featureScript("featCustLevel",
+                        "        def step1 = 2;\n        result = step1;\n"));
+        FeatureConfigDTO feature3 = featureConfig("FEAT0003",
+                featureScript("featRiskFlag",
+                        "        def step1 = 3;\n        result = step1;\n"));
+
+        String merged = generator.mergeFeatureExpressions(
+                Arrays.asList(feature1, feature2, feature3), null);
+
+        String removed = generator.removeFeature(
+                merged, Arrays.asList("FEAT0002", "FEAT0003"));
+
+        assertTrue(removed.contains("// 特征数量: 1"));
+        assertTrue(removed.contains("// ===== 特征: FEAT0001 ====="));
+        assertTrue(removed.contains("def featLoanAmt()"));
+        assertFalse(removed.contains("FEAT0002"));
+        assertFalse(removed.contains("featCustLevel"));
+        assertFalse(removed.contains("FEAT0003"));
+        assertFalse(removed.contains("featRiskFlag"));
+        assertTrue(removed.contains("'FEAT0001': featLoanAmt(),"));
+    }
+
+    /**
+     * 批量删除时存在缺失编码：抛异常并提示缺失编码，不做部分删除。
+     */
+    @Test
+    public void testRemoveFeature_batchWithMissingCode_throws() {
+        FeatureConfigDTO feature1 = featureConfig("FEAT0001",
+                featureScript("featLoanAmt",
+                        "        def step1 = 1;\n        result = step1;\n"));
+
+        String merged = generator.mergeFeatureExpressions(
+                Collections.singletonList(feature1), null);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> generator.removeFeature(merged, Arrays.asList("FEAT0001", "NOT_EXIST")));
+
+        assertTrue(ex.getMessage().contains("NOT_EXIST"));
     }
 }

@@ -4,13 +4,14 @@ import com.businesslogic.groovy.engine.CompiledGroovyScript;
 import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.groovy.engine.GroovyExpressionEngine;
 import com.businesslogic.groovy.generator.GroovyExpressionGenerator;
-import com.businesslogic.util.RedisUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.RedisOperations;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -51,7 +52,8 @@ public class GroovyRedisExpressionCache {
     private static final int SCRIPT_BATCH_SIZE = 20;
 
     @Autowired
-    private RedisUtils redisUtils;
+    @Qualifier("jdkRedisTemplate")
+    private RedisTemplate<String, Object> jdkRedisTemplate;
 
     @Autowired
     private GroovyExpressionGenerator expressionGenerator;
@@ -181,7 +183,7 @@ public class GroovyRedisExpressionCache {
         long startTime = System.currentTimeMillis();
         preheating = true;
         try {
-            String globalVersionStr = redisUtils.get(GroovyExprRedisKeys.GLOBAL_VERSION_KEY);
+            String globalVersionStr = readGlobalVersion();
             if (globalVersionStr == null || globalVersionStr.isEmpty()) {
                 this.localCache = Collections.emptyMap();
                 this.localGlobalVersion = Long.MIN_VALUE;
@@ -191,7 +193,7 @@ public class GroovyRedisExpressionCache {
             }
 
             long globalVersion = Long.parseLong(globalVersionStr.trim());
-            Map<Object, Object> redisVersions = redisUtils.hGetAll(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY);
+            Map<Object, Object> redisVersions = readSourceVersions();
 
             Map<String, GroovySourceScriptEntry> newCache = new ConcurrentHashMap<>();
             if (redisVersions != null && !redisVersions.isEmpty()) {
@@ -236,7 +238,7 @@ public class GroovyRedisExpressionCache {
      * 轮询同步实现。
      */
     void pollAndReload() {
-        String globalVersionStr = redisUtils.get(GroovyExprRedisKeys.GLOBAL_VERSION_KEY);
+        String globalVersionStr = readGlobalVersion();
         if (globalVersionStr == null || globalVersionStr.isEmpty()) {
             return;
         }
@@ -251,7 +253,7 @@ public class GroovyRedisExpressionCache {
         }
 
         try {
-            globalVersionStr = redisUtils.get(GroovyExprRedisKeys.GLOBAL_VERSION_KEY);
+            globalVersionStr = readGlobalVersion();
             if (globalVersionStr == null || globalVersionStr.isEmpty()) {
                 return;
             }
@@ -260,7 +262,7 @@ public class GroovyRedisExpressionCache {
                 return;
             }
 
-            Map<Object, Object> redisVersions = redisUtils.hGetAll(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY);
+            Map<Object, Object> redisVersions = readSourceVersions();
             Map<String, GroovySourceScriptEntry> current = localCache;
 
             List<String> changedSourceNos = new ArrayList<>();
@@ -337,11 +339,14 @@ public class GroovyRedisExpressionCache {
         CompiledGroovyScript compiled = compileForCache(script);
 
         String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
+        // 调用方保证同一时刻只有一个发布者，读+1+写无并发竞争
+        long nextGlobalVersion = readGlobalVersionValue() + 1;
 
-        List<Consumer<RedisOperations<String, String>>> operations = Arrays.asList(
+        List<Consumer<RedisOperations<String, Object>>> operations = Arrays.asList(
                 ops -> ops.opsForValue().set(scriptKey, script),
                 ops -> ops.opsForHash().put(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo, version),
-                ops -> ops.opsForValue().increment(GroovyExprRedisKeys.GLOBAL_VERSION_KEY)
+                ops -> ops.opsForValue().set(GroovyExprRedisKeys.GLOBAL_VERSION_KEY,
+                        String.valueOf(nextGlobalVersion))
         );
 
         executeInTransaction(operations, String.format("publishSourceScript(sourceNo=%s)", sourceNo));
@@ -356,7 +361,7 @@ public class GroovyRedisExpressionCache {
     }
 
     /**
-     * 从 Redis 中移除源报文整体脚本中的指定特征（按特征编码定位），并重新发布递增版本。
+     * 从 Redis 中移除源报文整体脚本中的多个指定特征（按特征编码定位），并重新发布递增版本。
      *
      * <p>执行流程：</p>
      * <ol>
@@ -368,22 +373,22 @@ public class GroovyRedisExpressionCache {
      * </ol>
      *
      * @param sourceNo   源报文编号
-     * @param featureCode 要删除的特征编码（对应合并脚本注释 {@code // ===== 特征: 编码 =====}）
+     * @param featureCodeList 要删除的特征编码列表（对应合并脚本注释 {@code // ===== 特征: 编码 =====}）
      * @return 删除特征后的新脚本
      * @throws Exception 源报文不存在、特征不存在或脚本编译失败时抛出
      */
-    public String removeFeatureFromSource(String sourceNo, String featureCode) throws Exception {
+    public String removeFeatureFromSource(String sourceNo, java.util.List<String> featureCodeList) throws Exception {
         String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
-        String currentScript = redisUtils.get(scriptKey);
+        String currentScript = readScript(scriptKey);
 
         if (currentScript == null || currentScript.isEmpty()) {
             throw new IllegalArgumentException("源报文不存在或脚本为空，无法移除特征: " + sourceNo);
         }
 
-        String newScript = expressionGenerator.removeFeature(currentScript, featureCode);
+        String newScript = expressionGenerator.removeFeature(currentScript, featureCodeList);
         publishSourceScript(sourceNo, newScript, "1");
         logger.info("[GroovySourceCache] 已从源报文 {} 中移除特征 {} 并重新发布",
-                sourceNo, featureCode);
+                sourceNo, featureCodeList);
         return newScript;
     }
 
@@ -392,11 +397,14 @@ public class GroovyRedisExpressionCache {
      */
     public void removeSourceScript(String sourceNo) {
         String scriptKey = GroovyExprRedisKeys.sourceScriptKey(sourceNo);
+        // 调用方保证同一时刻只有一个发布者，读+1+写无并发竞争
+        long nextGlobalVersion = readGlobalVersionValue() + 1;
 
-        List<Consumer<RedisOperations<String, String>>> operations = Arrays.asList(
+        List<Consumer<RedisOperations<String, Object>>> operations = Arrays.asList(
                 ops -> ops.delete(scriptKey),
                 ops -> ops.opsForHash().delete(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo),
-                ops -> ops.opsForValue().increment(GroovyExprRedisKeys.GLOBAL_VERSION_KEY)
+                ops -> ops.opsForValue().set(GroovyExprRedisKeys.GLOBAL_VERSION_KEY,
+                        String.valueOf(nextGlobalVersion))
         );
 
         executeInTransaction(operations, String.format("removeSourceScript(sourceNo=%s)", sourceNo));
@@ -421,7 +429,7 @@ public class GroovyRedisExpressionCache {
     private void refreshLocalEntryAfterPublish(String sourceNo, CompiledGroovyScript compiled) {
         reloadLock.lock();
         try {
-            String versionStr = redisUtils.hGet(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo);
+            String versionStr = readSourceVersion(sourceNo);
             if (versionStr == null || versionStr.isEmpty()) {
                 logger.warn("[GroovySourceCache] 无法获取源报文 {} 的版本号，本地缓存未更新", sourceNo);
                 return;
@@ -452,7 +460,7 @@ public class GroovyRedisExpressionCache {
     }
 
     private void refreshLocalGlobalVersion() {
-        String globalVersionStr = redisUtils.get(GroovyExprRedisKeys.GLOBAL_VERSION_KEY);
+        String globalVersionStr = readGlobalVersion();
         if (globalVersionStr == null || globalVersionStr.isEmpty()) {
             return;
         }
@@ -472,20 +480,66 @@ public class GroovyRedisExpressionCache {
                     .map(GroovyExprRedisKeys::sourceScriptKey)
                     .collect(Collectors.toList());
 
-            List<String> values = redisUtils.getRedisTemplate().opsForValue().multiGet(keys);
+            List<Object> values = jdkRedisTemplate.opsForValue().multiGet(keys);
             for (int i = 0; i < batch.size(); i++) {
-                result.add(values != null ? values.get(i) : null);
+                Object value = values != null ? values.get(i) : null;
+                result.add(value != null ? value.toString() : null);
             }
         }
         return result;
     }
 
     /**
+     * 读取全局版本号原始值（JDK 序列化，可能是 Long/String）。
+     */
+    private String readGlobalVersion() {
+        Object value = jdkRedisTemplate.opsForValue().get(GroovyExprRedisKeys.GLOBAL_VERSION_KEY);
+        return value != null ? value.toString() : null;
+    }
+
+    private long readGlobalVersionValue() {
+        String str = readGlobalVersion();
+        if (str == null || str.trim().isEmpty()) {
+            return 0L;
+        }
+        return Long.parseLong(str.trim());
+    }
+
+    /**
+     * 读取源报文版本号 hash（JDK 序列化）。
+     */
+    private Map<Object, Object> readSourceVersions() {
+        return jdkRedisTemplate.opsForHash().entries(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY);
+    }
+
+    private String readSourceVersion(String sourceNo) {
+        Object value = jdkRedisTemplate.opsForHash()
+                .get(GroovyExprRedisKeys.SOURCE_VERSIONS_KEY, sourceNo);
+        return value != null ? value.toString() : null;
+    }
+
+    private String readScript(String scriptKey) {
+        Object value = jdkRedisTemplate.opsForValue().get(scriptKey);
+        return value != null ? value.toString() : null;
+    }
+
+    /**
      * 在 Redis 事务中执行多个操作。
      */
-    private void executeInTransaction(List<Consumer<RedisOperations<String, String>>> operations, String operationName) {
+    private void executeInTransaction(List<Consumer<RedisOperations<String, Object>>> operations, String operationName) {
         try {
-            redisUtils.executeInTemplateTransaction(operations);
+            jdkRedisTemplate.execute(new org.springframework.data.redis.core.SessionCallback<List<Object>>() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public <K, V> List<Object> execute(RedisOperations<K, V> ops) {
+                    ops.multi();
+                    RedisOperations<String, Object> stringOps = (RedisOperations<String, Object>) ops;
+                    for (Consumer<RedisOperations<String, Object>> operation : operations) {
+                        operation.accept(stringOps);
+                    }
+                    return ops.exec();
+                }
+            });
             logger.info("[GroovySourceCache] {} 操作成功", operationName);
         } catch (Exception e) {
             logger.error("[GroovySourceCache] {} 操作失败", operationName, e);
