@@ -11,6 +11,7 @@ import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,7 +115,9 @@ public class GroovyExpressionGenerator {
         expression.append("    try {\n");
         expression.append(stepsCode);
         if (lastVarName != null) {
-            expression.append("        result = ").append(lastVarName).append(";\n");
+            expression.append("        if (").append(lastVarName).append(" != null) {\n");
+            expression.append("            result = ").append(lastVarName).append(";\n");
+            expression.append("        }\n");
         }
         expression.append("    } catch (Exception e) {\n");
         expression.append("        // 任一中间步骤异常：保持默认值，直接返回\n");
@@ -242,6 +245,119 @@ public class GroovyExpressionGenerator {
         return cleaned;
     }
 
+    /**
+     * 在已有合并脚本的基础上继续合并新特征。
+     *
+     * <p>当 {@code existingMergeScript} 为空白时，行为与
+     * {@link #mergeFeatureExpressions(List, MergeMeta)} 完全一致；
+     * 当 {@code existingMergeScript} 不为空时，保留原脚本头部、原特征和原调度条目，
+     * 只追加新特征并同步更新特征数量和统一调度段。</p>
+     *
+     * <p>合并前会先校验：新特征的方法名是否与现有合并脚本中已有的方法名重复；
+     * 只要出现一个重复方法名，就立即抛出 {@link IllegalArgumentException}，不修改任何脚本。</p>
+     *
+     * @param features           要新增的特征配置列表，列表顺序即新调度条目的顺序
+     * @param meta               新发布元数据，仅在原脚本为空时用于生成脚本头
+     * @param existingMergeScript 现有合并脚本，可为 {@code null} 或空字符串
+     * @return 在现有合并脚本基础上追加新特征后的交易码级 Groovy 源码
+     */
+    public String mergeFeatureExpressions(List<FeatureConfigDTO> features, MergeMeta meta,
+                                          String existingMergeScript) {
+        if (existingMergeScript == null || existingMergeScript.trim().isEmpty()) {
+            return mergeFeatureExpressions(features, meta);
+        }
+        if (features == null || features.isEmpty()) {
+            return existingMergeScript;
+        }
+
+        Set<String> existingMethodNames = extractMethodNamesFromScript(existingMergeScript);
+        LinkedHashMap<String, String> methodNameByFeature = new LinkedHashMap<>();
+        Set<String> usedMethodNames = new HashSet<>();
+        List<FeatureConfigDTO> newFeatures = new ArrayList<>();
+        List<MethodBlock> newMethodBlocks = new ArrayList<>();
+
+        // 先完整校验并收集新特征：方法名与现有脚本冲突时直接报错，不进入后续拼接逻辑。
+        for (FeatureConfigDTO feature : features) {
+            String featureCode = feature.getFeatureCode();
+            if (featureCode == null || featureCode.trim().isEmpty()) {
+                throw new IllegalArgumentException("特征编码不能为空");
+            }
+            if (methodNameByFeature.containsKey(featureCode)) {
+                throw new IllegalArgumentException("重复的特征编码: " + featureCode);
+            }
+
+            MethodBlock methodBlock = extractMethodBlock(feature.getRunExpress());
+            String methodName = methodBlock.getMethodName();
+            if (existingMethodNames.contains(methodName)) {
+                throw new IllegalArgumentException(
+                        "新增特征方法名与现有合并脚本重复: " + methodName + "，特征编码: " + featureCode);
+            }
+            if (!usedMethodNames.add(methodName)) {
+                throw new IllegalArgumentException(
+                        "特征方法名重复（请保证特征名称唯一）: " + methodName + "，特征编码: " + featureCode);
+            }
+
+            methodNameByFeature.put(featureCode, methodName);
+            newFeatures.add(feature);
+            newMethodBlocks.add(methodBlock);
+        }
+
+        int maxScriptLength = GroovyExecutor.getEngine().getMaxScriptLength();
+        List<String> lines = new ArrayList<>(Arrays.asList(existingMergeScript.split("\n", -1)));
+        int dispatchStart = findDispatchStart(lines);
+        int dispatchEnd = findDispatchEnd(lines, dispatchStart);
+        int existingFeatureCount = 0;
+        for (int i = 0; i < dispatchStart; i++) {
+            if (lines.get(i).trim().startsWith("// ===== 特征:")) {
+                existingFeatureCount++;
+            }
+        }
+
+        List<String> existingDispatchEntries = new ArrayList<>();
+        if (!lines.get(dispatchStart).trim().equals("return [:]")) {
+            for (int i = dispatchStart + 1; i < dispatchEnd; i++) {
+                String line = lines.get(i);
+                if (!line.trim().isEmpty()) {
+                    existingDispatchEntries.add(line);
+                }
+            }
+        }
+
+        List<String> newFeatureLines = new ArrayList<>();
+        for (int i = 0; i < newFeatures.size(); i++) {
+            String featureCode = newFeatures.get(i).getFeatureCode();
+            String block = buildFeatureBlock(newFeatures.get(i), featureCode, newMethodBlocks.get(i));
+            for (String line : block.split("\n", -1)) {
+                newFeatureLines.add(line);
+            }
+        }
+        while (!newFeatureLines.isEmpty() && newFeatureLines.get(newFeatureLines.size() - 1).isEmpty()) {
+            newFeatureLines.remove(newFeatureLines.size() - 1);
+        }
+
+        List<String> newDispatchLines = new ArrayList<>();
+        newDispatchLines.add("return [");
+        newDispatchLines.addAll(existingDispatchEntries);
+        for (Map.Entry<String, String> entry : methodNameByFeature.entrySet()) {
+            newDispatchLines.add("    '" + escapeStringLiteral(entry.getKey())
+                    + "': " + entry.getValue() + "(),");
+        }
+        newDispatchLines.add("]");
+
+        List<String> resultLines = new ArrayList<>();
+        resultLines.addAll(lines.subList(0, dispatchStart));
+        resultLines.addAll(newFeatureLines);
+        resultLines.add("");
+        resultLines.addAll(newDispatchLines);
+        resultLines.addAll(lines.subList(dispatchEnd + 1, lines.size()));
+
+        String result = String.join("\n", resultLines);
+        result = updateFeatureCountHeader(result, existingFeatureCount + newFeatures.size());
+        ensureWithinScriptLengthLimit(result.length(), maxScriptLength, null);
+
+        logger.debug("在现有合并脚本基础上生成的交易码级 Groovy 脚本:\n{}", result);
+        return result;
+    }
 
     /**
      * 将多个特征的表达式合并为一个完整的交易码级源报文表达式，并在脚本头写入发布元数据。
@@ -299,12 +415,7 @@ public class GroovyExpressionGenerator {
                     ? feature.getFeatureDataType()
                     : inferReturnType(defaultValue);
 
-            script.append("// ===== 特征: ").append(commentSafe(featureCode)).append(" =====\n");
-            script.append("// 特征名称: ").append(commentSafe(feature.getFeatureName())).append("\n");
-            script.append("// 特征数据类型: ").append(commentSafe(feature.getFeatureDataType())).append("\n");
-            script.append("// 版本号: ").append(commentSafe(feature.getVersion())).append("\n");
-            script.append("// 特征描述: ").append(commentSafe(feature.getFeatureLogicDesc())).append("\n");
-            script.append(methodBlock.getBody()).append("\n\n");
+            script.append(buildFeatureBlock(feature, featureCode, methodBlock));
             ensureWithinScriptLengthLimit(script.length(), maxScriptLength, "超限特征: " + featureCode);
             methodNameByFeature.put(featureCode, methodName);
         }
@@ -319,6 +430,74 @@ public class GroovyExpressionGenerator {
 
         logger.debug("生成的交易码级 Groovy 脚本:\n{}", script);
         return script.toString();
+    }
+
+    /**
+     * 生成单个特征的注释块与 def 方法体，保持两处合并入口输出格式一致。
+     */
+    private String buildFeatureBlock(FeatureConfigDTO feature, String featureCode,
+                                     MethodBlock methodBlock) {
+        return "// ===== 特征: " + commentSafe(featureCode) + " =====\n"
+                + "// 特征名称: " + commentSafe(feature.getFeatureName()) + "\n"
+                + "// 特征数据类型: " + commentSafe(feature.getFeatureDataType()) + "\n"
+                + "// 版本号: " + commentSafe(feature.getVersion()) + "\n"
+                + "// 特征描述: " + commentSafe(feature.getFeatureLogicDesc()) + "\n"
+                + methodBlock.getBody() + "\n\n";
+    }
+
+    /**
+     * 提取现有合并脚本中的顶层方法名，用于新增前做方法名重复校验。
+     */
+    private Set<String> extractMethodNamesFromScript(String script) {
+        Set<String> methodNames = new HashSet<>();
+        if (script == null || script.trim().isEmpty()) {
+            return methodNames;
+        }
+
+        for (String rawLine : script.split("\n", -1)) {
+            String line = rawLine.trim();
+            if (!line.startsWith("def ")) {
+                continue;
+            }
+            String rest = line.substring("def ".length()).trim();
+            int leftParen = rest.indexOf('(');
+            if (leftParen <= 0) {
+                continue;
+            }
+            String name = rest.substring(0, leftParen).trim();
+            if (name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                methodNames.add(name);
+            }
+        }
+        return methodNames;
+    }
+
+    /**
+     * 定位合并脚本顶层统一调度段起始行：{@code return [} 或 {@code return [:]}。
+     */
+    private int findDispatchStart(List<String> lines) {
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            String line = lines.get(i).trim();
+            if ("return [".equals(line) || "return [:]".equals(line)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("现有合并脚本缺少 return 调度段");
+    }
+
+    /**
+     * 定位统一调度段结束行。单行 {@code return [:]} 时返回起始行自身。
+     */
+    private int findDispatchEnd(List<String> lines, int dispatchStart) {
+        if ("return [:]".equals(lines.get(dispatchStart).trim())) {
+            return dispatchStart;
+        }
+        for (int i = dispatchStart + 1; i < lines.size(); i++) {
+            if ("]".equals(lines.get(i).trim())) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("现有合并脚本的 return 调度段不完整");
     }
 
     /**

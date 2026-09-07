@@ -362,6 +362,35 @@ public class GroovyExpressionGeneratorTest {
     }
 
     /**
+     * 最后一步结果为 null 时不覆盖默认值；结果非 null 时才赋值给 result。
+     */
+    @Test
+    public void testGenerate_onlyAssignsResultWhenLastStepValueNotNull() throws Exception {
+        LogicStepDTO step = new LogicStepDTO();
+        step.setFunctionCategory("direct");
+        step.setMappedField("amount");
+        step.setOutputVar("step1");
+
+        BusinessLogicSaveDTO dto = new BusinessLogicSaveDTO();
+        dto.setName("nullGuardFeature");
+        dto.setDefaultValue("-1");
+        dto.setReturnType("BigDecimal");
+        dto.setLogicSteps(Collections.singletonList(step));
+
+        String script = generator.generate(dto);
+        assertTrue(script.contains("if (step1 != null) {"));
+        assertTrue(script.contains("result = step1;"));
+
+        // 字段缺失导致 step1 为 null：保持默认值 -1
+        Object nullResult = GroovyExecutor.execute(script, "{}");
+        assertEquals(-1, ((Number) nullResult).intValue());
+
+        // 字段存在时 step1 非 null：使用步骤结果 42
+        Object valueResult = GroovyExecutor.execute(script, "{\"amount\": 42}");
+        assertEquals(42, ((Number) valueResult).intValue());
+    }
+
+    /**
      * 完整示例：展示 mergeFeatureExpressions 合并后的交易码级脚本结构。
      * 仅用于演示与人工查看输出，不校验具体断言。
      */
@@ -601,5 +630,60 @@ public class GroovyExpressionGeneratorTest {
                 () -> generator.removeFeature(merged, Arrays.asList("FEAT0001", "NOT_EXIST")));
 
         assertTrue(ex.getMessage().contains("NOT_EXIST"));
+    }
+
+    /**
+     * 传入现有合并脚本时，应在保留原特征的基础上追加新特征，并同步更新特征数量与调度段。
+     */
+    @Test
+    public void testMergeFeatureExpressions_withExistingScript_appendsFeature() throws Exception {
+        FeatureConfigDTO existingFeature = featureConfig("FEAT0001",
+                featureScript("featExisting",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        String existingScript = generator.mergeFeatureExpressions(
+                Collections.singletonList(existingFeature), null);
+
+        FeatureConfigDTO newFeature = featureConfig("FEAT0002",
+                featureScript("featNew",
+                        "        def step1 = 2;\n        result = step1;\n"));
+        String merged = generator.mergeFeatureExpressions(
+                Collections.singletonList(newFeature), null, existingScript);
+
+        assertTrue(merged.contains("// 特征数量: 2"));
+        assertTrue(merged.contains("// ===== 特征: FEAT0001 ====="));
+        assertTrue(merged.contains("def featExisting()"));
+        assertTrue(merged.contains("'FEAT0001': featExisting(),"));
+        assertTrue(merged.contains("// ===== 特征: FEAT0002 ====="));
+        assertTrue(merged.contains("def featNew()"));
+        assertTrue(merged.contains("'FEAT0002': featNew(),"));
+
+        CompiledGroovyScript compiled = GroovyExecutor.compile(merged);
+        Map<?, ?> result = (Map<?, ?>) GroovyExecutor.execute(compiled, "{}");
+        assertEquals(2, result.size());
+        assertEquals(1, result.get("FEAT0001"));
+        assertEquals(2, result.get("FEAT0002"));
+    }
+
+    /**
+     * 新增方法名与现有合并脚本方法名重复时直接抛异常，不追加任何内容。
+     */
+    @Test
+    public void testMergeFeatureExpressions_withExistingScript_duplicateMethod_throws() {
+        FeatureConfigDTO existingFeature = featureConfig("FEAT0001",
+                featureScript("sameName",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        String existingScript = generator.mergeFeatureExpressions(
+                Collections.singletonList(existingFeature), null);
+
+        FeatureConfigDTO newFeature = featureConfig("FEAT0002",
+                featureScript("sameName",
+                        "        def step1 = 2;\n        result = step1;\n"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> generator.mergeFeatureExpressions(
+                        Collections.singletonList(newFeature), null, existingScript));
+
+        assertTrue(ex.getMessage().contains("sameName"));
+        assertTrue(ex.getMessage().contains("现有合并脚本"));
     }
 }
