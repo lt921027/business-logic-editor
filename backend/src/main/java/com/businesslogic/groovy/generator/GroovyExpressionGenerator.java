@@ -501,6 +501,20 @@ public class GroovyExpressionGenerator {
     }
 
     /**
+     * 从合并后的交易码级脚本中批量移除指定特征（按特征编码定位），保留原发布版本号。
+     *
+     * <p>等价于调用 {@link #removeFeature(String, List, String)} 并传入 {@code newVersion = null}。</p>
+     *
+     * @param mergedScript    合并后的交易码级脚本（{@link #mergeFeatureExpressions} 的产物）
+     * @param featureCodeList 要删除的特征编码列表（对应注释行 {@code // ===== 特征: 编码 =====}），
+     *                        列表顺序不影响删除结果
+     * @return 删除全部目标特征后的新脚本
+     */
+    public String removeFeature(String mergedScript, List<String> featureCodeList) {
+        return removeFeature(mergedScript, featureCodeList, null);
+    }
+
+    /**
      * 从合并后的交易码级脚本中批量移除指定特征（按特征编码定位），其余特征保持不变。
      *
      * <p>删除范围（每个特征）包含三部分：</p>
@@ -516,9 +530,10 @@ public class GroovyExpressionGenerator {
      * @param mergedScript    合并后的交易码级脚本（{@link #mergeFeatureExpressions} 的产物）
      * @param featureCodeList 要删除的特征编码列表（对应注释行 {@code // ===== 特征: 编码 =====}），
      *                        列表顺序不影响删除结果
-     * @return 删除全部目标特征后的新脚本
+     * @param newVersion      删除后要写入脚本头“发布版本号”的新版本号；为 {@code null} 或空白时保留原版本号
+     * @return 删除全部目标特征并更新发布版本号后的新脚本
      */
-    public String removeFeature(String mergedScript, List<String> featureCodeList) {
+    public String removeFeature(String mergedScript, List<String> featureCodeList, String newVersion) {
         if (mergedScript == null || mergedScript.isEmpty()) {
             throw new IllegalArgumentException("合并脚本不能为空");
         }
@@ -546,7 +561,28 @@ public class GroovyExpressionGenerator {
         for (String featureCode : featureCodeList) {
             result = removeFeatureInternal(result, featureCode.trim());
         }
-        return result;
+        return updateVersionHeader(result, newVersion);
+    }
+
+    /**
+     * 更新脚本头部的发布版本号。
+     *
+     * @param newVersion 新发布版本号；为 {@code null} 或空白时不修改版本号
+     * @return 更新版本号后的脚本
+     */
+    private String updateVersionHeader(String script, String newVersion) {
+        if (newVersion == null || newVersion.trim().isEmpty()) {
+            return script;
+        }
+        String[] lines = script.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            int idx = line.indexOf("// 发布版本号:");
+            if (idx >= 0) {
+                lines[i] = line.substring(0, idx) + "// 发布版本号: " + commentSafe(newVersion);
+            }
+        }
+        return String.join("\n", lines);
     }
 
     /**

@@ -633,6 +633,35 @@ public class GroovyExpressionGeneratorTest {
     }
 
     /**
+     * 删除特征时传入新版本号，会同步更新脚本头中的发布版本号；
+     * 不传版本号时保留原发布版本号。
+     */
+    @Test
+    public void testRemoveFeature_updatesPublishVersionHeader() {
+        FeatureConfigDTO feature1 = featureConfig("FEAT0001",
+                featureScript("featLoanAmt",
+                        "        def step1 = 1;\n        result = step1;\n"));
+        FeatureConfigDTO feature2 = featureConfig("FEAT0002",
+                featureScript("featCustLevel",
+                        "        def step1 = 2;\n        result = step1;\n"));
+
+        String merged = generator.mergeFeatureExpressions(
+                Arrays.asList(feature1, feature2),
+                new GroovyExpressionGenerator.MergeMeta(
+                        "LOAN_APPROVE", 12L, LocalDateTime.of(2026, 9, 7, 10, 0, 0)));
+
+        String removed = generator.removeFeature(
+                merged, Collections.singletonList("FEAT0001"), "13");
+        assertTrue(removed.contains("// 发布版本号: 13"));
+        assertFalse(removed.contains("// 发布版本号: 12"));
+        assertTrue(removed.contains("// 特征数量: 1"));
+
+        String preserved = generator.removeFeature(
+                merged, Collections.singletonList("FEAT0001"));
+        assertTrue(preserved.contains("// 发布版本号: 12"));
+    }
+
+    /**
      * 传入现有合并脚本时，应在保留原特征的基础上追加新特征，并同步更新特征数量与调度段。
      */
     @Test
