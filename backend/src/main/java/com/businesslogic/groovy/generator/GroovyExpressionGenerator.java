@@ -92,6 +92,12 @@ public class GroovyExpressionGenerator {
 
         for (int i = 0; i < steps.size(); i++) {
             LogicStepDTO step = steps.get(i);
+
+            String category = step.getFunctionCategory();
+            if("custom".equals(category)){
+                return step.getCustomExpression();
+            }
+
             String stepExpression = generateStepExpression(step, i + 1);
 
             // 空步骤或未知 category 不生成任何变量：跳过，避免末尾 result 引用未定义的 stepN
@@ -1188,7 +1194,6 @@ public class GroovyExpressionGenerator {
      *
      * <p>关联：被 {@link #generate} 循环调用；根据 category 委托给
      * {@link #generateDirectMapping} / {@link #generateCalculation} /
-     * {@link #generateFilter} / {@link #generateCustomExpression} 之一。
      *
      * @param step    单个逻辑步骤
      * @param stepNum 步骤序号（1-based，用于默认变量名 step1/step2...）
@@ -1203,8 +1208,6 @@ public class GroovyExpressionGenerator {
             return generateCalculation(step, stepNum);
         } else if ("filter".equals(category)) {
             return generateFilter(step, stepNum);
-        } else if ("custom".equals(category)) {
-            return generateCustomExpression(step, stepNum);
         } else {
             return "";
         }
@@ -1736,31 +1739,7 @@ public class GroovyExpressionGenerator {
         return cleaned;
     }
 
-    // ==================== 自定义表达式 ====================
 
-    /**
-     * 生成自定义表达式步骤：用户直接编写的自定义表达式，需转为 Groovy 语法。
-     *
-     * <p>处理步骤：
-     * <ol>
-     *   <li>去除 `input.` 前缀（Groovy 中字段通过 JsonPathUtil.read 访问，无需 input 前缀）</li>
-     *   <li>调用 {@link #convertAviatorSyntaxToGroovy} 做 nil→null 等旧式语法转换</li>
-     * </ol>
-     *
-     * <p>关联：被 {@link #generateStepExpression} 在 category="custom" 时调用。
-     */
-    private String generateCustomExpression(LogicStepDTO step, int stepNum) {
-        String varName = step.getOutputVar() != null ? step.getOutputVar() : "step" + stepNum;
-        String expr = step.getCustomExpression();
-
-        // 去除 input. 前缀
-        expr = expr.replaceAll("input\\.", "");
-
-        // 旧式自定义表达式语法转 Groovy 语法
-        expr = convertAviatorSyntaxToGroovy(expr);
-
-        return "def " + varName + " = " + expr;
-    }
 
     // ==================== 操作数表达式 ====================
 
@@ -2048,17 +2027,5 @@ public class GroovyExpressionGenerator {
         return op;
     }
 
-    /**
-     * 将自定义表达式中的旧式语法转为 Groovy 语法
-     * 处理 nil → null, let → def 等
-     */
-    private String convertAviatorSyntaxToGroovy(String expr) {
-        if (expr == null || expr.isEmpty()) {
-            return expr;
-        }
-        // nil → null
-        expr = expr.replaceAll("\\bnil\\b", "null");
-        return expr;
-    }
 
 }
