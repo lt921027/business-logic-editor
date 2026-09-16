@@ -24,6 +24,15 @@ public class FeatureConfigDTO {
     private String runExpress;//特征脚本
     private List<LogicStepDTO> logicSteps;
     private List<JsonPathParamDTO> jsonPathParams;
+    private EchoData echoData;
+
+    public EchoData getEchoData() {
+        return echoData;
+    }
+
+    public void setEchoData(EchoData echoData) {
+        this.echoData = echoData;
+    }
 
     public String getFeatureName() {
         return featureName;

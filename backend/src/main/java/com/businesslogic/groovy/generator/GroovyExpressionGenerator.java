@@ -72,6 +72,19 @@ public class GroovyExpressionGenerator {
             Pattern.compile("(?s)\\bdef\\s+result\\s*=\\s*(.*?);");
 
     /**
+     * 匹配脚本中用到的 JSON 路径，两个分组内容就是脚本里的原文：
+     * <ol>
+     *   <li>组1：{@code JsonPathUtil.read(inputData, '$.a.b')} 引号里面写的路径</li>
+     *   <li>组2：直接书写的 JsonPath，{@code $.a.b} / {@code $.a[0].b}</li>
+     * </ol>
+     * <p>旧写法 {@code input.a.b} 不在这里匹配，由 {@link #generateCustomScript(String)} 统一过滤掉。
+     */
+    private static final Pattern JSON_PATH_PARAM_PATTERN = Pattern.compile(
+            "\\.read\\s*\\(\\s*inputData\\s*,\\s*['\"]([^'\"]*)['\"]\\s*\\)"
+                    + "|(\\$(?:\\.[A-Za-z_][A-Za-z0-9_]*|\\[[0-9]+\\])"
+                    + "(?:(?:\\.[A-Za-z_][A-Za-z0-9_]*)|(?:\\[[0-9]+\\]))*)");
+
+    /**
      * 根据业务逻辑 DTO 生成 Groovy 脚本。
      *
      * <p>整体流程：遍历所有 LogicStep → 按 category 分发生成 → 末尾追加 return。
@@ -93,9 +106,12 @@ public class GroovyExpressionGenerator {
         for (int i = 0; i < steps.size(); i++) {
             LogicStepDTO step = steps.get(i);
 
-            String category = step.getFunctionCategory();
-            if("custom".equals(category)){
-                return step.getCustomExpression();
+            // 手动输入的脚本不走步骤生成流程，交给专用方法处理
+            if ("custom".equals(step.getFunctionCategory())) {
+                // 脚本原文原样返回；脚本里用到的 JSON 路径由 generateCustomScript 单独提取
+                String customExpression = step.getCustomExpression();
+                List<String> strings = generateCustomScript(customExpression);
+                return customExpression;
             }
 
             String stepExpression = generateStepExpression(step, i + 1);
@@ -136,6 +152,58 @@ public class GroovyExpressionGenerator {
 
         logger.debug("生成的 Groovy 脚本:\n{}", expression);
         return expression.toString();
+    }
+
+    /**
+     * 处理手动输入（functionCategory = "custom"）的脚本：把脚本里用到的 JSON 路径提出来。
+     *
+     * <p>为何要单独处理：手动输入的脚本是用户整段手写的，不经过 DTO 步骤生成流程，
+     * 它依赖哪些入参无法从逻辑步骤里推出来，只能从脚本原文里提取，供保存/发布/入参构建等环节使用。
+     *
+     * <p>提取规则（只保留 {@code $.} 开头的 JsonPath，取出来的就是脚本里的原文，不做归一化改写）：
+     * <ul>
+     *   <li>{@code JsonPathUtil.read(inputData, '$.amount')}：取引号内的 {@code $.amount}（单引号/双引号均可）</li>
+     *   <li>{@code $.user.name} / {@code $.items[0].price}：原样取 {@code $.user.name}</li>
+     * </ul>
+     * <p>其余写法直接丢掉，例如旧写法 {@code input.amount}、不带前缀的 {@code amount}，
+     * 以及 {@code $} 后面直接跟数组下标的 {@code $[0].price}。
+     *
+     * <p>结果去重并保持脚本里首次出现的顺序；传 null 或没有匹配时返回空 List。
+     * 示例：脚本 {@code input.amount * 2 + $.fee} 得到 {@code [$.fee]}；
+     * 脚本 {@code JsonPathUtil.read(inputData, '$.amount') > 0} 得到 {@code [$.amount]}。
+     *
+     * <p>关联：脚本正则见 {@link #JSON_PATH_PARAM_PATTERN}；脚本原文本身由
+     * {@link #generate(BusinessLogicSaveDTO)} 在 category = "custom" 时原样返回。
+     *
+     * @param expression 手动输入的脚本源码，可为 null
+     * @return 脚本中出现的 {@code $.} 开头的 JSON 路径列表（去重、按出现顺序、原样保留脚本里的写法）
+     */
+    public List<String> generateCustomScript(String expression) {
+        List<String> jsonPaths = new ArrayList<>();
+        if (expression == null || expression.isEmpty()) {
+            return jsonPaths;
+        }
+
+        Set<String> seen = new HashSet<>();
+        Matcher matcher = JSON_PATH_PARAM_PATTERN.matcher(expression);
+        while (matcher.find()) {
+            String path = matcher.group(1) != null ? matcher.group(1)
+                    : matcher.group(2);
+            if (path == null) {
+                continue;
+            }
+            path = path.trim();
+            // 只列 $. 开头的，其余写法（如 input.amount）直接跳过
+            if (!path.startsWith("$.")) {
+                continue;
+            }
+            if (seen.add(path)) {
+                jsonPaths.add(path);
+            }
+        }
+
+        logger.info("[Groovy] 手动输入脚本：共提取出 {} 个 JSON 路径 {}", jsonPaths.size(), jsonPaths);
+        return jsonPaths;
     }
 
     /**
