@@ -4,6 +4,9 @@ import com.businesslogic.common.Result;
 import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.groovy.redisCache.GroovyRedisExpressionCache;
 import com.businesslogic.groovy.redisCache.GroovySourceScriptEntry;
+import com.businesslogic.oplog.OpLog;
+import com.businesslogic.oplog.OpLogConsts;
+import com.businesslogic.oplog.OpLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -96,6 +99,7 @@ public class GroovyRedisTestController {
     /**
      * 发布源报文脚本。
      */
+    @OpLog(bizType = OpLogConsts.BIZ_SOURCE, operation = OpLogConsts.OP_INSERT)
     @PostMapping("/publish")
     public Result<Map<String, Object>> publish(@RequestBody Map<String, String> body) {
         String sourceNo = body.get("sourceNo");
@@ -109,6 +113,9 @@ public class GroovyRedisTestController {
         }
 
         try {
+            // 操作日志：先登记再去动数据，这样即使后面失败也能留下记录
+            OpLogContext.set(OpLogConsts.BIZ_SOURCE, OpLogConsts.OP_INSERT, sourceNo,
+                    "新增源报文 " + sourceNo, body.get("operator"));
             cache.publishSourceScript(sourceNo, script, "1");
             Map<String, Object> resp = new HashMap<>();
             resp.put("sourceNo", sourceNo);
@@ -116,6 +123,8 @@ public class GroovyRedisTestController {
             resp.put("status", cache.getStatus());
             return Result.success("发布成功", resp);
         } catch (Exception e) {
+            // 这里把异常转成了失败返回值，切面看不到异常，必须显式标记失败
+            OpLogContext.fail("发布失败: " + e.getMessage());
             logger.error("[GroovySourceCacheTest] publish 失败", e);
             return Result.error("发布失败: " + e.getMessage());
         }
