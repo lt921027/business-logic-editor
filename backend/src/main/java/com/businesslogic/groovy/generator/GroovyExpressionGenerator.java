@@ -63,6 +63,33 @@ public class GroovyExpressionGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(GroovyExpressionGenerator.class);
 
+    /**
+     * Groovy 脚本骨架模板：外层结构固定，只有少数几处随业务变化，用 {n} 占位。
+     *
+     * <p>占位符按顺序取值：{0} 取 {@link #renderTemplate(String, Object...)} 的第 1 个参数、
+     * {1} 取第 2 个……同一个占位符可以在模板里出现多次（方法名既用于方法定义、也用于末尾调用）。
+     * 占位符数量不限：以后要多插一段代码，在模板里加 {4}、{5}…… 并在调用处按顺序多传一个参数即可。
+     * 其中 {3} 是最后一步的输出变量名，模板里用它拼出“非 null 才覆盖默认值”的分支。
+     *
+     * <p>模板里其余的花括号（Groovy 代码块）原样保留，不会被替换。
+     */
+    private static final String SCRIPT_FRAME_TEMPLATE =
+            "def {0}() {\n"
+                    + "    def result = {1};\n"
+                    + "    try {\n"
+                    + "{2}"
+                    + "        if ({3} != null) {\n"
+                    + "            result = {3};\n"
+                    + "        }\n"
+                    + "    } catch (Exception e) {\n"
+                    + "        // 任一中间步骤异常：保持默认值，直接返回\n"
+                    + "        return result;\n"
+                    + "    }\n"
+                    + "    return result;\n"
+                    + "}\n"
+                    // 当前执行器通过 script.run() 读取脚本顶层的 return 值，因此这里显式调用一次方法并返回其结果
+                    + "return {0}()\n";
+
     /** 脚本头发布时间格式化 */
     private static final DateTimeFormatter PUBLISH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -129,29 +156,15 @@ public class GroovyExpressionGenerator {
 
         String methodName = sanitizeMethodName(dto.getName());
 
-        StringBuilder expression = new StringBuilder();
-        expression.append("def ").append(methodName).append("() {\n");
-        expression.append("    def result = ")
-                .append(resolveDefaultValueExpression(dto.getDefaultValue(), dto.getReturnType()))
-                .append(";\n");
-        expression.append("    try {\n");
-        expression.append(stepsCode);
-        if (lastVarName != null) {
-            expression.append("        if (").append(lastVarName).append(" != null) {\n");
-            expression.append("            result = ").append(lastVarName).append(";\n");
-            expression.append("        }\n");
-        }
-        expression.append("    } catch (Exception e) {\n");
-        expression.append("        // 任一中间步骤异常：保持默认值，直接返回\n");
-        expression.append("        return result;\n");
-        expression.append("    }\n");
-        expression.append("    return result;\n");
-        expression.append("}\n");
-        // 当前执行器通过 script.run() 读取脚本顶层的 return 值，因此这里显式调用一次方法并返回其结果
-        expression.append("return ").append(methodName).append("()\n");
+        // 骨架固定，变量按顺序传入：{0} 方法名、{1} 默认值表达式、{2} try 块内步骤代码、{3} 最后一步的输出变量
+        String expression = renderTemplate(SCRIPT_FRAME_TEMPLATE,
+                methodName,
+                resolveDefaultValueExpression(dto.getDefaultValue(), dto.getReturnType()),
+                stepsCode,
+                lastVarName);
 
         logger.debug("生成的 Groovy 脚本:\n{}", expression);
-        return expression.toString();
+        return expression;
     }
 
     /**
@@ -296,6 +309,41 @@ public class GroovyExpressionGenerator {
                 || "byte".equals(type)
                 || "double".equals(type)
                 || "float".equals(type);
+    }
+
+    /** 模板占位符：{0}、{1}…… 只认数字序号，模板里其它花括号（Groovy 代码块）原样保留 */
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{(\\d+)}");
+
+    /**
+     * 按顺序把变量填进模板：{0} 取第 1 个参数、{1} 取第 2 个……参数个数不限，位置即对应关系。
+     *
+     * <p>同名占位符可以重复出现（如 {0} 写两次），会被替换成同一个值；
+     * 模板里其它花括号（Groovy 代码块）原样保留，不做替换。
+     * 参数为 null 时该位置填空串；占位符序号超出参数个数时原样保留，都不抛异常。
+     *
+     * @param template 含 {0}、{1}… 占位符的模板，可为 null
+     * @param args     按顺序传入的变量，个数不限
+     * @return 替换后的文本；template 为 null 时返回 null
+     */
+    private String renderTemplate(String template, Object... args) {
+        if (template == null) {
+            return null;
+        }
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
+        // 注意：Matcher.appendReplacement/appendTail 只接受 StringBuffer（Java 8 没有 StringBuilder 重载）
+        StringBuffer out = new StringBuffer(template.length() + 256);
+        while (matcher.find()) {
+            int index = Integer.parseInt(matcher.group(1));
+            String replacement;
+            if (index >= args.length) {
+                replacement = matcher.group();
+            } else {
+                Object value = args[index];
+                replacement = value == null ? "" : value.toString();
+            }
+            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
+        }
+        return matcher.appendTail(out).toString();
     }
 
     /**
