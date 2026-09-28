@@ -3,6 +3,8 @@ package com.businesslogic.groovy.controller;
 import com.businesslogic.common.Result;
 import com.businesslogic.dto.BusinessLogicSaveDTO;
 import com.businesslogic.groovy.service.GroovyBusinessLogicService;
+import com.businesslogic.oplog.OpLog;
+import com.businesslogic.oplog.OpLogConsts;
 import com.businesslogic.vo.BusinessLogicVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -12,12 +14,12 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,36 +62,29 @@ public class GroovyBusinessLogicController {
     }
 
     /**
-     * 保存业务逻辑
+     * 保存特征（新增与修改合并）
      *
-     * <p>关联：委托 {@link GroovyBusinessLogicService#save}。
+     * <p>请求体带 id 走修改，不带（null 或 0）走新增。判断放在这里而不是 Service，
+     * 是为了让两个 Service 方法保持原有的单一职责与事务边界。</p>
      *
-     * @param dto 业务逻辑保存 DTO
-     * @return 保存后的业务逻辑 VO
+     * <p>操作日志由 {@link OpLog} 注解加切面自动记录，业务代码不需要登记：
+     * 切面靠入参里的 id 区分新增与修改，并在方法执行前后各查一次库，
+     * 得到修改前后的表达式与步骤快照。</p>
+     *
+     * @param dto 特征保存 DTO，修改时携带 id
+     * @return 保存后的特征 VO
      */
+    @OpLog(featureIdProperty = "id")
     @PostMapping
     public Result<BusinessLogicVO> save(@Valid @RequestBody BusinessLogicSaveDTO dto) {
-        logger.info("[Groovy] 保存业务逻辑请求: {}", dto.getName());
-        BusinessLogicVO result = businessLogicService.save(dto);
-        return Result.success("保存成功", result);
-    }
+        Long id = dto.getId();
+        boolean update = id != null && id > 0;
+        logger.info("[Groovy] {}特征请求: id={}, name={}", update ? "修改" : "新增", id, dto.getName());
 
-    /**
-     * 更新业务逻辑
-     *
-     * <p>关联：委托 {@link GroovyBusinessLogicService#update}。
-     *
-     * @param id  业务逻辑 ID
-     * @param dto 新的业务逻辑数据
-     * @return 更新后的业务逻辑 VO
-     */
-    @PutMapping("/{id}")
-    public Result<BusinessLogicVO> update(
-            @PathVariable Long id,
-            @Valid @RequestBody BusinessLogicSaveDTO dto) {
-        logger.info("[Groovy] 更新业务逻辑请求: {}", dto.getName());
-        BusinessLogicVO result = businessLogicService.update(id, dto);
-        return Result.success("更新成功", result);
+        BusinessLogicVO result = update
+                ? businessLogicService.update(id, dto)
+                : businessLogicService.save(dto);
+        return Result.success(update ? "更新成功" : "保存成功", result);
     }
 
     /**
@@ -122,18 +117,40 @@ public class GroovyBusinessLogicController {
     }
 
     /**
-     * 删除业务逻辑
+     * 删除特征（支持批量）
      *
-     * <p>关联：委托 {@link GroovyBusinessLogicService#delete}。
+     * <p>请求体是特征ID 数组，单个删除就是长度为 1 的数组。逐条委托
+     * {@link GroovyBusinessLogicService#delete}，任意一条抛异常即中断并向上抛出，
+     * 此时前面已删除的条目保持删除状态（部分成功）。</p>
      *
-     * @param id 业务逻辑 ID
-     * @return 空结果
+     * <p>操作日志由切面按批处理：每个特征一行，分别记录删除前的表达式与步骤快照；
+     * 部分成功时，已删除的条目记为成功，其余记为失败并带上异常原因。</p>
+     *
+     * @param ids 特征ID 列表
+     * @return 删除结果统计
      */
-    @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable Long id) {
-        logger.info("[Groovy] 删除业务逻辑请求: {}", id);
-        businessLogicService.delete(id);
-        return Result.success("删除成功", null);
+    @OpLog(operation = OpLogConsts.OP_DELETE, featureIdArg = 0)
+    @DeleteMapping
+    public Result<Map<String, Object>> delete(@RequestBody List<Long> ids) {
+        logger.info("[Groovy] 删除特征请求: ids={}", ids);
+        if (ids == null || ids.isEmpty()) {
+            return Result.error("ids 不能为空");
+        }
+
+        List<Long> deleted = new ArrayList<>();
+        for (Long id : ids) {
+            if (id == null || id <= 0) {
+                continue;
+            }
+            businessLogicService.delete(id);
+            deleted.add(id);
+        }
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("requested", ids.size());
+        resp.put("deleted", deleted.size());
+        resp.put("ids", deleted);
+        return Result.success("删除成功", resp);
     }
 
     /**

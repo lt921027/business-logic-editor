@@ -4,6 +4,7 @@ import com.businesslogic.groovy.engine.CompiledGroovyScript;
 import com.businesslogic.groovy.engine.GroovyExecutor;
 import com.businesslogic.groovy.engine.GroovyExpressionEngine;
 import com.businesslogic.groovy.generator.GroovyExpressionGenerator;
+import com.businesslogic.util.RedisUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +55,9 @@ public class GroovyRedisExpressionCache {
     @Autowired
     @Qualifier("jdkRedisTemplate")
     private RedisTemplate<String, Object> jdkRedisTemplate;
+
+    @Autowired
+    private RedisUtils redisUtils;
 
     @Autowired
     private GroovyExpressionGenerator expressionGenerator;
@@ -525,21 +529,14 @@ public class GroovyRedisExpressionCache {
 
     /**
      * 在 Redis 事务中执行多个操作。
+     *
+     * <p>复用 {@link RedisUtils}：单机 / 主从 / 哨兵走 MULTI/EXEC 原子提交；
+     * Redis 集群不支持 MULTI/EXEC（集群连接会直接抛异常），此时自动退化为按顺序逐条执行，
+     * 因此各操作必须按“先写数据、最后更新版本号”的顺序排列，保证版本号可见时数据已就绪。</p>
      */
     private void executeInTransaction(List<Consumer<RedisOperations<String, Object>>> operations, String operationName) {
         try {
-            jdkRedisTemplate.execute(new org.springframework.data.redis.core.SessionCallback<List<Object>>() {
-                @Override
-                @SuppressWarnings("unchecked")
-                public <K, V> List<Object> execute(RedisOperations<K, V> ops) {
-                    ops.multi();
-                    RedisOperations<String, Object> stringOps = (RedisOperations<String, Object>) ops;
-                    for (Consumer<RedisOperations<String, Object>> operation : operations) {
-                        operation.accept(stringOps);
-                    }
-                    return ops.exec();
-                }
-            });
+            redisUtils.executeInTemplateTransaction(jdkRedisTemplate, operations);
             logger.info("[GroovySourceCache] {} 操作成功", operationName);
         } catch (Exception e) {
             logger.error("[GroovySourceCache] {} 操作失败", operationName, e);

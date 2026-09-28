@@ -9,6 +9,14 @@ import java.util.List;
 public class BusinessLogicSaveDTO {
 
     /**
+     * 特征ID
+     *
+     * <p>新增时不传（或传 null/0），修改时传对应ID。GroovyBusinessLogicController
+     * 靠它区分新增与修改，操作日志切面也靠它取特征ID。</p>
+     */
+    private Long id;
+
+    /**
      * 业务逻辑名称
      * 用于在列表中展示和检索，作为业务逻辑的唯一标识
      * 示例订单金额计算"用户等级评定"
@@ -49,6 +57,14 @@ public class BusinessLogicSaveDTO {
      * 按执行顺序存储所有业务逻辑步骤，每个步骤是一LogicStepDTO 对象
      * 表达式生成器会遍历该列表，生成完整的 Aviator 表达     * 限制：最多支5 个步     */
     private List<LogicStepDTO> logicSteps;
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
 
     public String getName() {
         return name;

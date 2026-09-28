@@ -1,25 +1,12 @@
 package com.businesslogic.oplog;
 
 /**
- * 操作日志通用常量：对象类型与操作类型。
- *
- * <p>开发人员登记操作日志时直接引用这里的常量，避免手写字符串出现拼写不一致。</p>
- *
- * <pre>
- * OpLogContext.set(OpLogConsts.BIZ_SOURCE, OpLogConsts.OP_INSERT, sourceNo,
- *         "新增源报文 " + sourceNo, operator);
- * </pre>
+ * 特征操作日志常量。
  */
 public final class OpLogConsts {
 
     private OpLogConsts() {
     }
-
-    /** 对象类型：源报文 */
-    public static final String BIZ_SOURCE = "SOURCE";
-
-    /** 对象类型：特征配置 */
-    public static final String BIZ_FEATURE = "FEATURE";
 
     /** 操作类型：新增 */
     public static final String OP_INSERT = "INSERT";
@@ -29,4 +16,13 @@ public final class OpLogConsts {
 
     /** 操作类型：删除 */
     public static final String OP_DELETE = "DELETE";
+
+    /** 变更项：步骤发生变化 */
+    public static final String CHANGE_STEPS = "步骤";
+
+    /** 变更项：步骤未变但表达式变化（名称、默认值、返回类型等） */
+    public static final String CHANGE_EXPRESSION = "表达式";
+
+    /** 变更项：内容没有变化 */
+    public static final String CHANGE_NONE = "无变化";
 }

@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>彩纸炮 🎉</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    background: radial-gradient(ellipse at 50% 18%, #34387f 0%, #1d1f4d 46%, #0b0c20 100%);
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; z-index: 1; display: block; }
+
+  .title {
+    position: fixed; top: 18px; left: 22px; z-index: 3;
+    font-size: 22px; font-weight: 700; letter-spacing: 1px;
+    text-shadow: 0 2px 14px rgba(0,0,0,.55);
+  }
+  .title small { font-weight: 400; font-size: 12px; opacity: .62; margin-left: 10px; letter-spacing: 0; }
+
+  .counter {
+    position: fixed; top: 22px; right: 22px; z-index: 3;
+    font-size: 13px; opacity: .75;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.16);
+    padding: 6px 13px; border-radius: 999px;
+    backdrop-filter: blur(6px);
+  }
+
+  .controls {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    display: flex; gap: 10px; z-index: 3; flex-wrap: wrap; justify-content: center;
+  }
+  .controls button {
+    font: inherit; font-size: 15px; color: #fff; cursor: pointer;
+    background: rgba(255,255,255,.11);
+    border: 1px solid rgba(255,255,255,.28);
+    border-radius: 999px; padding: 10px 18px;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: background .15s, transform .08s;
+  }
+  .controls button:hover { background: rgba(255,255,255,.22); }
+  .controls button:active { transform: scale(.94); }
+  .controls button.primary {
+    background: linear-gradient(135deg, #ff4d6d, #f77062);
+    border-color: rgba(255,255,255,.45);
+    font-weight: 700;
+  }
+  .controls button.primary:hover { filter: brightness(1.08); }
+  .controls button.on { background: rgba(6,214,160,.35); border-color: #06d6a0; }
+
+  .hint {
+    position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+    z-index: 3; font-size: 13px; opacity: .55;
+    background: rgba(0,0,0,.28); padding: 6px 14px; border-radius: 999px;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+  <canvas id="fx"></canvas>
+
+  <div class="title">彩纸炮 <span>🎉</span><small>点击屏幕或按空格发射</small></div>
+  <div class="counter" id="counter">彩纸 0</div>
+
+  <div class="controls">
+    <button class="primary" id="fireBtn">🚀 发射</button>
+    <button id="autoBtn">连发：关</button>
+    <button id="sfxBtn" class="on">音效：开</button>
+    <button id="clearBtn">清空</button>
+  </div>
+  <div class="hint">移动鼠标 / 手指，大炮会跟着你转哦</div>
+
+<script>
+"use strict";
+
+// ---------- 基础 ----------
+const canvas = document.getElementById("fx");
+const ctx = canvas.getContext("2d");
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ---------- 状态 ----------
+const COLORS = [
+  "#ff5d8f", "#ffd166", "#06d6a0", "#118ab2", "#8338ec", "#fb5607",
+  "#3a86ff", "#ef476f", "#ffbe0b", "#9bf6ff", "#ff9f1c", "#ffffff"
+];
+const GOLD = "#ffd166";
+
+let particles = [];   // 彩纸
+let flashes = [];     // 炮口闪光
+let smokes = [];      // 烟雾
+let recoil = 0;       // 后坐力 0..1
+let shake = 0;        // 屏幕震动
+let autoFire = false;
+let sfxOn = true;
+let nextAutoAt = 0;
+let time = 0;
+
+const pivot = { x: 150, y: 120 };
+const BARREL_LEN = 100; // 炮口到转轴的距离（视觉上）
+let aim = -Math.PI / 4;      // 当前炮管角度（canvas 坐标系，向上为负）
+let targetAim = -Math.PI / 4;
+
+function clampAim(a) {
+  // 只允许炮口朝向上半屏
+  return Math.max(-2.85, Math.min(-0.16, a));
+}
+
+function updatePivot() {
+  pivot.x = Math.max(120, Math.min(W - 150, W * 0.15));
+  pivot.y = H - 108;
+}
+
+function pointerToAim(clientX, clientY) {
+  return clampAim(Math.atan2(clientY - pivot.y, clientX - pivot.x));
+}
+
+window.addEventListener("pointermove", (e) => {
+  targetAim = pointerToAim(e.clientX, e.clientY);
+});
+
+// ---------- 音频 ----------
+let audioCtx = null;
+function makePop() {
+  if (!sfxOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+
+    // 短促噪声“砰”
+    const dur = 0.16;
+    const buf = audioCtx.createBuffer(1, Math.ceil(audioCtx.sampleRate * dur), audioCtx.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / ch.length);
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buf;
+    const bp = audioCtx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 850;
+    bp.Q.value = 0.6;
+    const ng = audioCtx.createGain();
+    ng.gain.setValueAtTime(0.35, t0);
+    ng.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    noise.connect(bp).connect(ng).connect(audioCtx.destination);
+    noise.start(t0);
+
+    // 低频“轰”尾音
+    const osc = audioCtx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(170, t0);
+    osc.frequency.exponentialRampToValueAtTime(65, t0 + 0.22);
+    const og = audioCtx.createGain();
+    og.gain.setValueAtTime(0.22, t0);
+    og.gain.exponentialRampToValueAtTime(0.001, t0 + 0.24);
+    osc.connect(og).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.25);
+  } catch (err) { /* 忽略音频异常 */ }
+}
+
+// ---------- 发射 ----------
+function fire(power = 1) {
+  updatePivot();
+  const off = recoil * 14;
+  const mx = pivot.x + Math.cos(aim) * (BARREL_LEN - off);
+  const my = pivot.y + Math.sin(aim) * (BARREL_LEN - off);
+
+  const area = Math.min(1, (W * H) / (1500 * 800));
+  const count = Math.round((90 + 150 * power) * area);
+
+  for (let i = 0; i < count; i++) {
+    const spread = 0.62;
+    const a = aim + (Math.random() - 0.5) * spread;
+    const speed = (820 + Math.random() * 620) * (0.75 + power * 0.35);
+    const roll = Math.random();
+    const p = {
+      x: mx + (Math.random() - 0.5) * 14,
+      y: my + (Math.random() - 0.5) * 14,
+      vx: Math.cos(a) * speed,
+      vy: Math.sin(a) * speed,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * 14,
+      seed: Math.random() * 100,
+      life: 2.6 + Math.random() * 1.8,
+      maxLife: 4.2,
+      alpha: 1,
+      bounces: 0,
+      shape: roll < 0.02 ? "emoji"
+            : roll < 0.10 ? "sparkle"
+            : roll < 0.46 ? "circle" : "rect"
+    };
+    if (p.shape === "rect") {
+      p.w = 6 + Math.random() * 15;
+      p.h = 4 + Math.random() * 4;
+      p.color = COLORS[(Math.random() * COLORS.length) | 0];
+      p.ribbon = Math.random() < 0.32;
+      if (p.ribbon) p.w += 6;
+    } else if (p.shape === "circle") {
+      p.r = 3.5 + Math.random() * 4.5;
+      p.color = COLORS[(Math.random() * COLORS.length) | 0];
+    } else if (p.shape === "sparkle") {
+      p.r = 4 + Math.random() * 4;
+      p.color = Math.random() < 0.5 ? GOLD : "#ffffff";
+    } else {
+      p.size = 13 + Math.random() * 10;
+      p.text = Math.random() < 0.5 ? "🎉" : "✨";
+    }
+    particles.push(p);
+  }
+
+  // 炮口闪光与烟雾
+  flashes.push({ x: mx, y: my, t: 0, life: 0.13, r: 26 + Math.random() * 14 });
+  for (let i = 0; i < 6; i++) {
+    const a = aim + (Math.random() - 0.5) * 0.7;
+    smokes.push({
+      x: mx, y: my,
+      vx: Math.cos(a) * (60 + Math.random() * 90),
+      vy: Math.sin(a) * (60 + Math.random() * 90) - 30,
+      r: 7 + Math.random() * 8,
+      life: 0.55 + Math.random() * 0.4,
+      maxLife: 0.95
+    });
+  }
+
+  recoil = 1;
+  shake = Math.min(12, 5 + power * 5);
+  makePop();
+  trimParticles();
+}
+
+function trimParticles() {
+  if (particles.length > 6500) particles.splice(0, particles.length - 6500);
+  if (smokes.length > 400) smokes.splice(0, smokes.length - 400);
+}
+
+// ---------- 每帧更新 ----------
+function shortestAngleDiff(a, b) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+function update(dt) {
+  time += dt;
+  aim += shortestAngleDiff(aim, targetAim) * Math.min(1, 10 * dt);
+  recoil = Math.max(0, recoil - 4.5 * dt);
+  shake = Math.max(0, shake - 34 * dt);
+
+  // 彩纸
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+    const G = 1250;
+    p.vy += G * dt;
+    p.vx *= Math.max(0, 1 - 0.18 * dt);       // 空气阻力
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.rot += p.vr * dt + Math.sin(time * 9 + p.seed) * 2.2 * dt;
+    p.vr *= Math.max(0, 1 - 1.8 * dt);
+
+    // 落地轻轻一弹
+    if (p.y > H - 20) {
+      if (p.bounces < 2 && Math.abs(p.vy) > 260) {
+        p.y = H - 20;
+        p.vy *= -0.34;
+        p.vx *= 0.62;
+        p.vr *= 0.45;
+        p.bounces++;
+      } else {
+        p.y = H - 20;
+        p.vy = Math.min(0, p.vy * 0.2);
+        p.vx *= Math.max(0, 1 - 2.6 * dt);
+      }
+    }
+    p.alpha = p.life < 0.45 ? Math.max(0, p.life / 0.45) : 1;
+  }
+
+  // 闪光
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const f = flashes[i];
+    f.t += dt;
+    if (f.t >= f.life) flashes.splice(i, 1);
+  }
+
+  // 烟雾
+  for (let i = smokes.length - 1; i >= 0; i--) {
+    const s = smokes[i];
+    s.life -= dt;
+    if (s.life <= 0) { smokes.splice(i, 1); continue; }
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.r += 16 * dt;
+  }
+
+  // 连发
+  if (autoFire && time >= nextAutoAt) {
+    nextAutoAt = time + 0.62;
+    fire(0.8);
+  }
+}
+
+// ---------- 绘制 ----------
+function drawParticle(p) {
+  ctx.globalAlpha = p.alpha;
+  if (p.shape === "rect") {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+    ctx.restore();
+  } else if (p.shape === "circle") {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  } else if (p.shape === "sparkle") {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    for (let k = 0; k < 4; k++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(p.r * 0.28, -p.r);
+      ctx.lineTo(-p.r * 0.28, -p.r);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.restore();
+  } else {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot * 0.4);
+    ctx.font = p.size + "px 'Segoe UI Emoji','Apple Color Emoji',sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(p.text, 0, 0);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSmoke() {
+  for (const s of smokes) {
+    const k = 1 - s.life / s.maxLife;
+    ctx.globalAlpha = 0.16 * (1 - k);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFlash() {
+  ctx.globalCompositeOperation = "lighter";
+  for (const f of flashes) {
+    const k = 1 - f.t / f.life;
+    const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+    grad.addColorStop(0, `rgba(255,244,180,${0.95 * k})`);
+    grad.addColorStop(0.45, `rgba(255,190,80,${0.5 * k})`);
+    grad.addColorStop(1, "rgba(255,140,40,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+function drawCannon() {
+  updatePivot();
+  const px = pivot.x, py = pivot.y;
+
+  // 底座阴影
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,.35)";
+  ctx.beginPath();
+  ctx.ellipse(px + 10, H - 5, 62, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 木质支架（不随炮管旋转）
+  ctx.strokeStyle = "#8a5a2b";
+  ctx.lineCap = "round";
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.moveTo(px - 18, py + 12);
+  ctx.lineTo(px - 40, H - 8);
+  ctx.moveTo(px + 18, py + 12);
+  ctx.lineTo(px + 42, H - 8);
+  ctx.stroke();
+  ctx.fillStyle = "#6e4520";
+  ctx.beginPath();
+  ctx.moveTo(px - 48, H - 8);
+  ctx.lineTo(px + 50, H - 8);
+  ctx.lineTo(px + 44, H - 14);
+  ctx.lineTo(px - 44, H - 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // 车轮
+  for (const wx of [px - 36, px + 38]) {
+    ctx.fillStyle = "#3c3c52";
+    ctx.beginPath();
+    ctx.arc(wx, H - 20, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#d9d2b8";
+    ctx.beginPath();
+    ctx.arc(wx, H - 20, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 炮管（沿 +x 绘制，再旋转到瞄准方向）
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(aim);
+  const back = recoil * 12; // 后坐位移
+  ctx.translate(-back, 0);
+
+  // 炮身
+  const bodyGrad = ctx.createLinearGradient(-44, 0, 58, 0);
+  bodyGrad.addColorStop(0, "#ff4d6d");
+  bodyGrad.addColorStop(0.55, "#e11d48");
+  bodyGrad.addColorStop(1, "#9d1239");
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.roundRect(-44, -16, 100, 32, 10);
+  ctx.fill();
+
+  // 炮身条纹
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = "rgba(255,255,255,.18)";
+  for (let x = -34; x < 56; x += 16) {
+    ctx.beginPath();
+    ctx.moveTo(x, -16);
+    ctx.lineTo(x + 8, -16);
+    ctx.lineTo(x - 2, 16);
+    ctx.lineTo(x - 10, 16);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 尾盖
+  ctx.fillStyle = "#6f0f2c";
+  ctx.beginPath();
+  ctx.ellipse(-44, 0, 7, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 金色锥形炮口
+  const coneGrad = ctx.createLinearGradient(54, 0, 102, 0);
+  coneGrad.addColorStop(0, "#ffd166");
+  coneGrad.addColorStop(1, "#e07a2f");
+  ctx.fillStyle = coneGrad;
+  ctx.beginPath();
+  ctx.moveTo(54, -15);
+  ctx.lineTo(54, 15);
+  ctx.lineTo(102, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#b85f22";
+  ctx.beginPath();
+  ctx.ellipse(102, 0, 5, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 高光
+  ctx.fillStyle = "rgba(255,255,255,.25)";
+  ctx.beginPath();
+  ctx.roundRect(-34, -12, 86, 6, 3);
+  ctx.fill();
+
+  ctx.restore(); // 解除炮管旋转
+
+  // 炮口亮光
+  const mx = px + Math.cos(aim) * (BARREL_LEN - back);
+  const my = py + Math.sin(aim) * (BARREL_LEN - back);
+  ctx.fillStyle = "rgba(255,255,255,.10)";
+  ctx.beginPath();
+  ctx.ellipse(mx, my, 5, 12, aim, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  // 屏幕震动
+  if (shake > 0.2) {
+    ctx.save();
+    ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  }
+
+  drawSmoke();
+  for (const p of particles) drawParticle(p);
+  drawCannon();
+  drawFlash();
+
+  if (shake > 0.2) ctx.restore();
+
+  // 统计信息（节流更新 DOM）
+  if (Math.floor(time * 8) !== Math.floor((time - 1 / 60) * 8)) {
+    document.getElementById("counter").textContent = "彩纸 " + particles.length;
+  }
+}
+
+// ---------- 主循环 ----------
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ---------- 交互 ----------
+function fireFromPointer(e) {
+  targetAim = pointerToAim(e.clientX, e.clientY);
+  aim = targetAim;
+  fire(1);
+}
+
+window.addEventListener("pointerdown", (e) => {
+  fireFromPointer(e);
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") {
+    e.preventDefault();
+    fire(1);
+  }
+});
+
+document.getElementById("fireBtn").addEventListener("click", () => fire(1.25));
+
+const autoBtn = document.getElementById("autoBtn");
+autoBtn.addEventListener("click", () => {
+  autoFire = !autoFire;
+  autoBtn.textContent = autoFire ? "连发：开" : "连发：关";
+  autoBtn.classList.toggle("on", autoFire);
+  if (autoFire) nextAutoAt = time + 0.15;
+});
+
+const sfxBtn = document.getElementById("sfxBtn");
+sfxBtn.addEventListener("click", () => {
+  sfxOn = !sfxOn;
+  sfxBtn.textContent = sfxOn ? "音效：开" : "音效：关";
+  sfxBtn.classList.toggle("on", sfxOn);
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  particles = [];
+  flashes = [];
+  smokes = [];
+});
+
+// 开场先来一发，展示效果（静音，等用户手势再开声音）
+updatePivot();
+sfxOn = false;
+fire(0.7);
+sfxOn = true;
+
+// ?demo 参数：用于自动演示 / 预览截图
+if (new URLSearchParams(location.search).has("demo")) {
+  sfxOn = false;
+  autoFire = true;
+  fire(1);
+  // 先模拟推进十几帧，让首屏就有漫天彩纸的效果
+  nextAutoAt = time + 1.2;
+  for (let i = 0; i < 18; i++) update(1 / 60);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

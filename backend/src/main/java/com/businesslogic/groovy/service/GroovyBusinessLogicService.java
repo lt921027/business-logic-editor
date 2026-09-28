@@ -303,6 +303,36 @@ public class GroovyBusinessLogicService extends ServiceImpl<BusinessLogicMapper,
     }
 
     /**
+     * 获取特征快照（表达式 + 步骤）
+     *
+     * <p>一次主表查询 + 一次步骤查询，同时产出 Groovy 表达式与步骤原样实体。
+     * 供操作日志切面在"改前/改后"各取一份，避免步骤表被重复查询。</p>
+     *
+     * <p>与 {@link #getDetail(Long)} 的区别：记录不存在时返回 {@code null} 而不抛异常，
+     * 因为切面查快照属于旁路逻辑，记录不存在是正常情况（例如新增、或删了个不存在的ID）。</p>
+     *
+     * @param id 特征ID
+     * @return 快照；特征不存在或 id 为空时返回 null
+     */
+    public FeatureSnapshot getSnapshot(Long id) {
+        if (id == null) {
+            return null;
+        }
+
+        BusinessLogic businessLogic = baseMapper.selectById(id);
+        if (businessLogic == null) {
+            return null;
+        }
+
+        LambdaQueryWrapper<LogicStep> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(LogicStep::getBusinessLogicId, id);
+        queryWrapper.orderByAsc(LogicStep::getStepOrder);
+        List<LogicStep> steps = logicStepMapper.selectList(queryWrapper);
+
+        return new FeatureSnapshot(businessLogic.getGroovyExpression(), steps);
+    }
+
+    /**
      * 获取所有业务逻辑
      *
      * <p>关联：调用 {@link #convertToVOWithSteps} 为每条业务逻辑附加步骤列表。
@@ -468,7 +498,20 @@ public class GroovyBusinessLogicService extends ServiceImpl<BusinessLogicMapper,
         vo.setCreatedAt(businessLogic.getCreatedAt());
         vo.setUpdatedAt(businessLogic.getUpdatedAt());
 
-        List<LogicStepVO> stepVOs = steps.stream().map(step -> {
+        vo.setLogicSteps(toStepVOList(steps));
+
+        return vo;
+    }
+
+    /**
+     * 把步骤实体转换为前端使用的 VO 结构
+     *
+     * <p>解析规则集中在此处：{@code params} 逗号字符串拆成列表，
+     * 四个 JSON 字符串字段反序列化为对象列表。被 {@link #convertToVO} 与
+     * {@link #getSnapshot(Long)} 共用，避免两处实现漂移。</p>
+     */
+    private List<LogicStepVO> toStepVOList(List<LogicStep> steps) {
+        return steps.stream().map(step -> {
             LogicStepVO stepVO = new LogicStepVO();
             stepVO.setId(step.getId());
             stepVO.setStepOrder(step.getStepOrder());
@@ -491,9 +534,6 @@ public class GroovyBusinessLogicService extends ServiceImpl<BusinessLogicMapper,
             }
             return stepVO;
         }).collect(Collectors.toList());
-        vo.setLogicSteps(stepVOs);
-
-        return vo;
     }
 
     /**
